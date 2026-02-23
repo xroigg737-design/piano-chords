@@ -1,5 +1,22 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Environment
 .env
-partitura_acordes.pdf
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output PDFs
+*_acordes.pdf
