@@ -85,7 +85,7 @@ def _spell_root(pitch_class: int, key_sharps: int) -> str:
     if 6 not in preferred:
         preferred[6] = "F#" if key_sharps >= -1 else "Gb"
     if 8 not in preferred:
-        preferred[8] = "Ab" if key_sharps <= 3 else "G#"
+        preferred[8] = "Ab" if key_sharps < 3 else "G#"
     if 10 not in preferred:
         preferred[10] = "Bb"  # almost always Bb
 
@@ -193,7 +193,7 @@ def identify_chord(
 
     Returns (chord_symbol, confidence).
     """
-    if len(pitch_classes) < 2:
+    if len(pitch_classes) < 3:
         return ("N.C.", 0.0)
 
     # Candidate roots: bass first, then all pitch classes
@@ -270,6 +270,348 @@ def identify_chord(
 
 
 # ---------------------------------------------------------------------------
+# Chord explanation
+# ---------------------------------------------------------------------------
+
+# Human-readable interval names
+_INTERVAL_NAMES = {
+    0: "fonamental",
+    1: "b2/b9",
+    2: "2/9",
+    3: "3m",
+    4: "3M",
+    5: "4/11",
+    6: "#4/#11/b5",
+    7: "5",
+    8: "#5/b6/b13",
+    9: "6/13",
+    10: "7m",
+    11: "7M",
+}
+
+# Quality descriptions
+_QUALITY_DESCRIPTIONS = {
+    "":       "major (3M + 5J)",
+    "-":      "menor (3m + 5J)",
+    "o":      "disminuit (3m + 5dim)",
+    "+":      "augmentat (3M + 5aug)",
+    "sus":    "suspesa 4a (4J + 5J)",
+    "sus2":   "suspesa 2a (2M + 5J)",
+    "maj7":   "major amb 7a major",
+    "7":      "dominant (3M + 5J + 7m)",
+    "-7":     "menor 7a (3m + 5J + 7m)",
+    "\u00f8": "semidisminuit (3m + 5dim + 7m)",
+    "o7":     "disminuit 7a (3m + 5dim + 7dim)",
+    "maj7#5": "augmentat maj7 (3M + 5aug + 7M)",
+    "7#5":    "augmentat dom7 (3M + 5aug + 7m)",
+    "-maj7":  "menor amb 7a major",
+    "6":      "major amb 6a",
+    "-6":     "menor amb 6a",
+    "7#11":   "dominant lidi (#11)",
+    "7b9":    "dominant amb b9",
+    "7b13":   "dominant amb b13",
+    "7sus":   "dominant suspesa 4a",
+}
+
+
+def _note_name_to_notation(name: str, notation: str) -> str:
+    """Convert an anglo note name like 'C#' to the target notation."""
+    if notation == "anglo" or not name:
+        return name
+    from config import ANGLO_TO_LATIN
+    # Separate base letter from accidentals
+    base = name[0]
+    acc = name[1:] if len(name) > 1 else ""
+    latin = ANGLO_TO_LATIN.get(base, base)
+    return f"{latin}{acc}"
+
+
+def _parse_chord_symbol(symbol: str, key_sharps: int = 0) -> tuple[int | None, set[int]]:
+    """Parse a chord symbol into (root_pitch_class, template_intervals).
+
+    Returns (None, set()) if parsing fails.
+    """
+    symbol_part = symbol
+    if "/" in symbol:
+        symbol_part = symbol.rsplit("/", 1)[0]
+
+    for root_pc in range(12):
+        root_name = _spell_root(root_pc, key_sharps)
+        for tmpl_intervals, quality in CHORD_TEMPLATES:
+            if root_name + quality == symbol_part:
+                return root_pc, tmpl_intervals
+
+    return None, set()
+
+
+def classify_note_as_chord_tone(
+    note: ExtractedNote,
+    chord_symbol: str,
+    key_sharps: int = 0,
+) -> bool:
+    """Return True if the note is a chord tone of the given chord."""
+    root_pc, template_intervals = _parse_chord_symbol(chord_symbol, key_sharps)
+    if root_pc is None:
+        return True  # can't classify — assume chord tone
+    interval = (note.pitch_class - root_pc) % 12
+    return interval in template_intervals
+
+
+def is_chromatic_note(note: ExtractedNote, key_sharps: int) -> bool:
+    """Return True if the note is outside the diatonic scale of the key."""
+    major_scale = [0, 2, 4, 5, 7, 9, 11]
+    sharp_order_pc = [5, 0, 7, 2, 9, 4, 11]
+    flat_order_pc = [11, 4, 9, 2, 7, 0, 5]
+
+    scale_pcs = list(major_scale)
+    if key_sharps > 0:
+        for i in range(min(key_sharps, 7)):
+            if sharp_order_pc[i] in scale_pcs:
+                idx = scale_pcs.index(sharp_order_pc[i])
+                scale_pcs[idx] = (sharp_order_pc[i] + 1) % 12
+    elif key_sharps < 0:
+        for i in range(min(-key_sharps, 7)):
+            if flat_order_pc[i] in scale_pcs:
+                idx = scale_pcs.index(flat_order_pc[i])
+                scale_pcs[idx] = (flat_order_pc[i] - 1) % 12
+
+    return note.pitch_class not in set(scale_pcs)
+
+
+def detect_inversion(
+    chord_symbol: str,
+    bass_pc: int | None,
+    key_sharps: int = 0,
+) -> str:
+    """Detect chord inversion based on bass note.
+
+    Returns: "fonamental", "1a inversio (3a al baix)", "2a inversio (5a al baix)",
+             "3a inversio (7a al baix)", or "" if unknown.
+    """
+    if bass_pc is None:
+        return ""
+    root_pc, template_intervals = _parse_chord_symbol(chord_symbol, key_sharps)
+    if root_pc is None:
+        return ""
+
+    interval_from_root = (bass_pc - root_pc) % 12
+    if interval_from_root == 0:
+        return "fonamental"
+    elif interval_from_root in (3, 4):
+        return "1a inversio (3a al baix)"
+    elif interval_from_root in (6, 7):
+        return "2a inversio (5a al baix)"
+    elif interval_from_root in (9, 10, 11):
+        return "3a inversio (7a al baix)"
+    return ""
+
+
+def roman_numeral(
+    chord_symbol: str,
+    key_sharps: int,
+    key_mode: str = "major",
+) -> str:
+    """Compute Roman numeral degree for a chord within a key.
+
+    Returns e.g. "I", "IV", "V", "IIm", "VIm", "VIIo", etc.
+    """
+    root_pc, template_intervals = _parse_chord_symbol(chord_symbol, key_sharps)
+    if root_pc is None:
+        return ""
+
+    # Build the major scale for the key
+    major_scale = [0, 2, 4, 5, 7, 9, 11]
+    sharp_order_pc = [5, 0, 7, 2, 9, 4, 11]
+    flat_order_pc = [11, 4, 9, 2, 7, 0, 5]
+
+    scale_pcs = list(major_scale)
+    if key_sharps > 0:
+        for i in range(min(key_sharps, 7)):
+            if sharp_order_pc[i] in scale_pcs:
+                idx = scale_pcs.index(sharp_order_pc[i])
+                scale_pcs[idx] = (sharp_order_pc[i] + 1) % 12
+    elif key_sharps < 0:
+        for i in range(min(-key_sharps, 7)):
+            if flat_order_pc[i] in scale_pcs:
+                idx = scale_pcs.index(flat_order_pc[i])
+                scale_pcs[idx] = (flat_order_pc[i] - 1) % 12
+
+    # Find the tonic of the key (the pitch class that is degree I)
+    # For major keys: key_sharps maps to tonic via circle of fifths
+    # For minor keys: tonic is the relative minor (major tonic - 3 semitones)
+    tonic_by_sharps = {
+        0: 0, 1: 7, 2: 2, 3: 9, 4: 4, 5: 11, 6: 6, 7: 1,
+        -1: 5, -2: 10, -3: 3, -4: 8, -5: 1, -6: 6, -7: 11,
+    }
+    tonic_pc = tonic_by_sharps.get(key_sharps, 0)
+    if key_mode == "minor":
+        tonic_pc = (tonic_pc - 3) % 12
+
+    # Sort scale starting from tonic
+    sorted_scale = sorted(scale_pcs)
+    tonic_idx = None
+    for i, pc in enumerate(sorted_scale):
+        if pc == tonic_pc:
+            tonic_idx = i
+            break
+    if tonic_idx is None:
+        tonic_idx = 0
+
+    # Reorder scale starting from tonic
+    ordered_scale = sorted_scale[tonic_idx:] + sorted_scale[:tonic_idx]
+
+    # Find degree of the chord root
+    numerals = ["I", "II", "III", "IV", "V", "VI", "VII"]
+    degree_idx = None
+    for i, pc in enumerate(ordered_scale):
+        if pc == root_pc:
+            degree_idx = i
+            break
+
+    if degree_idx is None:
+        # Chromatic root — try to find closest scale degree
+        for i, pc in enumerate(ordered_scale):
+            if (pc + 1) % 12 == root_pc:
+                return "#" + numerals[i]
+            if (pc - 1) % 12 == root_pc:
+                return "b" + numerals[i]
+        return ""
+
+    numeral = numerals[degree_idx]
+
+    # Determine quality suffix from chord symbol
+    symbol_part = chord_symbol
+    if "/" in chord_symbol:
+        symbol_part = chord_symbol.rsplit("/", 1)[0]
+
+    # Extract quality from the symbol
+    root_name = _spell_root(root_pc, key_sharps)
+    quality = symbol_part[len(root_name):]
+
+    # Map quality to Roman numeral suffix
+    if quality in ("-", "-7", "-6", "-maj7"):
+        return numeral.lower() if quality == "-" else numeral.lower() + quality.replace("-", "")
+    elif quality in ("o", "o7"):
+        return numeral + quality
+    elif quality == "ø":
+        return numeral + "ø"
+    elif quality in ("+", "maj7#5", "7#5"):
+        return numeral + "+"
+    elif quality in ("7", "7sus", "7b9", "7b13", "7#11"):
+        return numeral + "7" if quality == "7" else numeral + quality
+    elif quality in ("sus", "sus2"):
+        return numeral + quality
+    elif quality in ("maj7",):
+        return numeral + "maj7"
+    elif quality in ("6",):
+        return numeral + "6"
+    elif quality == "":
+        return numeral
+
+    return numeral
+
+
+def explain_chord(
+    pitch_classes: set[int],
+    bass_pitch_class: int | None,
+    chord_symbol: str,
+    key_sharps: int = 0,
+    notation: str = "anglo",
+) -> list[tuple[str, str]]:
+    """Generate a structured explanation of why a chord was identified.
+
+    Returns a list of (text, category) tuples where category is one of:
+    'fon' (root), 'int' (intervals), 'qual' (quality), 'bass' (bass note),
+    'nc' (no chord), 'sep' (separator).
+    """
+    if not pitch_classes or chord_symbol in ("N.C.", "?", ""):
+        return [("Menys de 3 notes", "nc")]
+
+    best_root = None
+    best_quality = None
+
+    # Handle slash chords
+    slash_bass = None
+    symbol_part = chord_symbol
+    if "/" in chord_symbol:
+        symbol_part, slash_bass = chord_symbol.rsplit("/", 1)
+
+    # Find root pitch class from the symbol
+    for root_pc in range(12):
+        root_name = _spell_root(root_pc, key_sharps)
+        for tmpl_intervals, quality in CHORD_TEMPLATES:
+            if root_name + quality == symbol_part:
+                best_root = root_pc
+                best_quality = quality
+                break
+        if best_root is not None:
+            break
+
+    if best_root is None:
+        return [("Acord: " + chord_symbol, "nc")]
+
+    root_name = _spell_root(best_root, key_sharps)
+    root_display = _note_name_to_notation(root_name, notation)
+
+    # Compute actual intervals from root
+    intervals = sorted((pc - best_root) % 12 for pc in pitch_classes if (pc - best_root) % 12 != 0)
+    interval_names = [_INTERVAL_NAMES.get(i, f"{i}st") for i in intervals]
+
+    # Quality description
+    desc = _QUALITY_DESCRIPTIONS.get(best_quality, best_quality)
+
+    # Build structured parts
+    parts: list[tuple[str, str]] = []
+    parts.append((f"Fon: {root_display}", "fon"))
+
+    if interval_names:
+        parts.append((" | ", "sep"))
+        parts.append((f"Int: {', '.join(interval_names)}", "int"))
+
+    parts.append((" | ", "sep"))
+    parts.append((f"{desc}", "qual"))
+
+    # Bass note info
+    if bass_pitch_class is not None:
+        bass_name = _spell_root(bass_pitch_class, key_sharps)
+        bass_display = _note_name_to_notation(bass_name, notation)
+        if slash_bass:
+            bass_text = f"Baix: {bass_display} (inversio)"
+        elif bass_pitch_class == best_root:
+            bass_text = f"Baix: {bass_display} (fonamental)"
+        else:
+            bass_text = f"Baix: {bass_display}"
+        parts.append((" | ", "sep"))
+        parts.append((bass_text, "bass"))
+
+    return parts
+
+
+def explain_measure_chord(
+    measure: MeasureNotes,
+    key_sharps: int,
+    notation: str = "anglo",
+) -> list[tuple[str, str]]:
+    """Generate structured explanation for the chord identified in a measure.
+
+    Returns list of (text, category) tuples.
+    """
+    if not measure.note_groups:
+        return []
+
+    from chord_identifier import _analyze_note_group_chord
+    symbol, _conf = _analyze_note_group_chord(measure.note_groups, key_sharps)
+
+    all_pcs = measure.all_pitch_classes
+    bass_pc = None
+    bass_note = measure.bass_note
+    if bass_note is not None:
+        bass_pc = bass_note.pitch_class
+
+    return explain_chord(all_pcs, bass_pc, symbol, key_sharps, notation=notation)
+
+
+# ---------------------------------------------------------------------------
 # Harmonic rhythm detection
 # ---------------------------------------------------------------------------
 
@@ -324,9 +666,12 @@ def _analyze_note_group_chord(
     else:
         core_pcs = set(all_pc_count.keys())
 
-    # Ensure at least 2 PCs
-    if len(core_pcs) < 2:
-        core_pcs = {pc for pc, _ in sorted(all_pc_count.items(), key=lambda x: -x[1])[:3]}
+    # Ensure at least 3 PCs for reliable identification
+    if len(core_pcs) < 3:
+        for pc, _ in sorted(all_pc_count.items(), key=lambda x: -x[1]):
+            core_pcs.add(pc)
+            if len(core_pcs) >= 3:
+                break
 
     # Bass = lowest note in first group
     bass_pc = None
@@ -489,9 +834,23 @@ def analyze_page_chords(
         measures_out = []
         for m in sys_measures:
             chords = _detect_harmonic_rhythm(m, key_sharps)
+
+            # Classify each note as chord tone or passing tone
+            chord_symbol = chords[0]["chord"] if chords else ""
+            note_highlights = []
+            for ng in m.note_groups:
+                for n in ng.notes:
+                    is_ct = classify_note_as_chord_tone(n, chord_symbol, key_sharps)
+                    note_highlights.append({
+                        "x": n.x,
+                        "y": n.y,
+                        "is_chord_tone": is_ct,
+                    })
+
             measures_out.append({
                 "measure_index": m.measure_index,
                 "chords": chords,
+                "note_highlights": note_highlights,
             })
 
         systems_out.append({

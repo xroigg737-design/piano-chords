@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Annotador d'Acords PDF</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e8e8e8;
+            min-height: 100vh;
+        }
+        #app {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 20px 16px;
+        }
+
+        /* Navigation */
+        .top-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            margin-bottom: 16px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+        }
+        .nav-home {
+            color: #888;
+            text-decoration: none;
+            font-size: 0.85em;
+            padding: 6px 14px;
+            border-radius: 8px;
+            transition: all 0.15s;
+        }
+        .nav-home:hover { color: #ffd700; background: rgba(255,215,0,0.08); }
+        .nav-links { display: flex; gap: 6px; }
+        .nav-btn {
+            color: #aaa;
+            text-decoration: none;
+            font-size: 0.82em;
+            padding: 6px 14px;
+            border-radius: 8px;
+            transition: all 0.15s;
+        }
+        .nav-btn:hover { color: #ffaa00; background: rgba(255,170,0,0.08); }
+        .nav-btn.active { color: #ffaa00; background: rgba(255,170,0,0.1); }
+
+        /* Header */
+        header { text-align: center; margin-bottom: 28px; }
+        header h1 {
+            font-size: 1.8em;
+            background: linear-gradient(90deg, #ffd700, #ffaa00);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        header p { font-size: 0.9em; opacity: 0.6; margin-top: 6px; }
+
+        /* Features strip */
+        .features {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .feat {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 18px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 10px;
+            font-size: 0.82em;
+            color: #bbb;
+        }
+        .feat .fi {
+            font-size: 1.2em;
+            color: #ffaa00;
+        }
+
+        /* Main card */
+        .card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 28px;
+            margin-bottom: 20px;
+        }
+        .card-title {
+            font-size: 0.8em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #ffaa00;
+            margin-bottom: 16px;
+            font-weight: 700;
+        }
+
+        /* Drop zone */
+        .dropzone {
+            border: 2px dashed rgba(255,170,0,0.25);
+            border-radius: 14px;
+            padding: 48px 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s;
+            background: rgba(255,170,0,0.02);
+            position: relative;
+        }
+        .dropzone:hover, .dropzone.dragover {
+            border-color: rgba(255,170,0,0.5);
+            background: rgba(255,170,0,0.06);
+        }
+        .dropzone.has-file {
+            border-color: rgba(100,200,100,0.4);
+            background: rgba(100,200,100,0.04);
+        }
+        .dropzone input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .dz-icon {
+            font-size: 3em;
+            margin-bottom: 12px;
+            display: block;
+            opacity: 0.7;
+        }
+        .dz-text {
+            font-size: 1em;
+            color: #bbb;
+        }
+        .dz-hint {
+            font-size: 0.78em;
+            color: #777;
+            margin-top: 8px;
+        }
+        .dz-file {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-size: 0.95em;
+            color: #8ddf8d;
+        }
+        .dz-file .dz-fname {
+            font-weight: 600;
+        }
+        .dz-file .dz-pages {
+            font-size: 0.82em;
+            color: #999;
+        }
+        .dz-file .dz-remove {
+            color: #f66;
+            cursor: pointer;
+            font-size: 1.1em;
+            margin-left: 6px;
+            opacity: 0.7;
+            transition: opacity 0.15s;
+        }
+        .dz-file .dz-remove:hover { opacity: 1; }
+        .dropzone.has-file .dz-icon,
+        .dropzone.has-file .dz-text,
+        .dropzone.has-file .dz-hint { display: none; }
+        .dropzone.has-file .dz-file { display: flex; }
+
+        /* Options row */
+        .options {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            align-items: end;
+            margin-top: 20px;
+        }
+        .opt-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .opt-group label {
+            font-size: 0.72em;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #888;
+            font-weight: 600;
+        }
+        .opt-group select, .opt-group input {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            color: #e8e8e8;
+            padding: 9px 14px;
+            font-size: 0.88em;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .opt-group select:focus, .opt-group input:focus {
+            border-color: rgba(255,170,0,0.4);
+        }
+        .opt-group select option {
+            background: #1a1a2e;
+        }
+
+        /* Process button */
+        .btn-process {
+            flex: 1;
+            min-width: 180px;
+            padding: 12px 28px;
+            background: linear-gradient(180deg, #d4920a 0%, #a06800 100%);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 0.95em;
+            font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+        }
+        .btn-process:hover:not(:disabled) {
+            background: linear-gradient(180deg, #e8a420 0%, #b87800 100%);
+            box-shadow: 0 4px 18px rgba(255,170,0,0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+            transform: translateY(-1px);
+        }
+        .btn-process:active:not(:disabled) {
+            transform: translateY(1px);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 4px rgba(0,0,0,0.2);
+        }
+        .btn-process:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Progress */
+        .progress-area {
+            display: none;
+            margin-top: 20px;
+        }
+        .progress-area.active { display: block; }
+        .progress-bar-bg {
+            height: 6px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ffaa00, #ffd700);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.4s ease;
+        }
+        .progress-log {
+            max-height: 160px;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+            font-size: 0.78em;
+            line-height: 1.65;
+            color: #999;
+            padding: 12px 14px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .progress-log .log-ok { color: #8ddf8d; }
+        .progress-log .log-warn { color: #f0c060; }
+        .progress-log .log-err { color: #f06060; }
+        .progress-log .log-info { color: #7aafff; }
+
+        /* Result area */
+        .result-area {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .result-area.active { display: block; }
+        .result-success {
+            font-size: 1.1em;
+            color: #8ddf8d;
+            margin-bottom: 16px;
+        }
+        .btn-download {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 32px;
+            background: linear-gradient(180deg, #2d8a2d 0%, #1d6520 100%);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 1em;
+            font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+        }
+        .btn-download:hover {
+            background: linear-gradient(180deg, #3aa03a 0%, #287828 100%);
+            box-shadow: 0 4px 18px rgba(80,200,80,0.35);
+            transform: translateY(-1px);
+        }
+
+        /* Preview */
+        .preview-area {
+            display: none;
+            margin-top: 20px;
+        }
+        .preview-area.active { display: block; }
+        .preview-frame {
+            width: 100%;
+            height: 500px;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            background: #fff;
+        }
+
+        /* Chord types panel */
+        .chord-types {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        .ct-group-title {
+            grid-column: 1 / -1;
+            font-size: 0.75em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #ffaa00;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .ct-group-title:first-child { margin-top: 0; }
+        .ct-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            font-size: 0.85em;
+        }
+        .ct-sym {
+            font-weight: 700;
+            color: #ffd700;
+            min-width: 50px;
+        }
+        .ct-name { color: #aaa; }
+
+        /* Pipeline visual */
+        .pipeline {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .pipe-step {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 0.78em;
+            color: #999;
+            transition: all 0.3s;
+        }
+        .pipe-step.done { color: #8ddf8d; }
+        .pipe-step.active { color: #ffd700; }
+        .pipe-step.error { color: #f06060; }
+        .pipe-step .ps-ico { font-size: 1.15em; }
+        .pipe-arrow {
+            color: #444;
+            font-size: 0.7em;
+            margin: 0 2px;
+        }
+
+        /* Error toast */
+        .error-toast {
+            display: none;
+            padding: 14px 20px;
+            background: rgba(240,60,60,0.12);
+            border: 1px solid rgba(240,60,60,0.25);
+            border-radius: 10px;
+            color: #f08080;
+            font-size: 0.88em;
+            margin-top: 16px;
+        }
+        .error-toast.active { display: block; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            #app { padding: 14px 12px; }
+            header h1 { font-size: 1.4em; }
+            .card { padding: 18px 14px; }
+            .dropzone { padding: 32px 16px; }
+            .options { gap: 10px; }
+            .features { gap: 8px; }
+            .feat { padding: 8px 12px; font-size: 0.76em; }
+            .preview-frame { height: 350px; }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+
+    <nav class="top-nav">
+        <a class="nav-home" data-local="http://localhost:8080" data-remote="/" href="/">&#8592; Apps XRoig</a>
+        <div class="nav-links">
+            <a class="nav-btn" data-local="../entrenador-partitures/index.html" data-remote="/entrenador-partitures/index.html" href="../entrenador-partitures/index.html">Lectura</a>
+            <a class="nav-btn" data-local="../entrenador-partitures/acords.html" data-remote="/entrenador-partitures/acords.html" href="../entrenador-partitures/acords.html">Acords</a>
+            <a class="nav-btn active" href="#">Annotador</a>
+        </div>
+    </nav>
+
+    <header>
+        <h1>Annotador d'Acords PDF</h1>
+        <p>Anota automàticament els acords sobre partitures de piano en PDF</p>
+    </header>
+
+    <div class="features">
+        <div class="feat"><span class="fi">&#119070;</span> Triades i 7es</div>
+        <div class="feat"><span class="fi">&#9881;</span> Extracció vectorial</div>
+        <div class="feat"><span class="fi">&#128065;</span> Claude Vision fallback</div>
+        <div class="feat"><span class="fi">&#9837;</span> Anglo &amp; Llatí</div>
+        <div class="feat"><span class="fi">&#9834;</span> Slash chords</div>
+        <div class="feat"><span class="fi">&#128462;</span> MusicXML</div>
+    </div>
+
+    <!-- Upload card -->
+    <div class="card">
+        <div class="card-title">Puja la partitura</div>
+
+        <div class="dropzone" id="dropzone">
+            <input type="file" id="fileInput" accept=".pdf,.xml,.musicxml,.mxl">
+            <span class="dz-icon">&#128196;</span>
+            <div class="dz-text">Arrossega un PDF o MusicXML aquí o fes clic per seleccionar</div>
+            <div class="dz-hint">PDF vectorials (MuseScore), escanejats, o MusicXML (.xml, .musicxml, .mxl)</div>
+            <div class="dz-file">
+                <span class="dz-fname" id="fileName"></span>
+                <span class="dz-pages" id="filePages"></span>
+                <span class="dz-remove" id="fileRemove" title="Eliminar">&#10005;</span>
+            </div>
+        </div>
+
+        <div class="options">
+            <div class="opt-group">
+                <label>Notació</label>
+                <select id="optNotation">
+                    <option value="latin">Llatí (Do, Re, Mi...)</option>
+                    <option value="anglo">Anglo (C, D, E...)</option>
+                </select>
+            </div>
+            <div class="opt-group">
+                <label>Mida de font</label>
+                <select id="optFontSize">
+                    <option value="auto">Auto</option>
+                    <option value="7">7 pt</option>
+                    <option value="8">8 pt</option>
+                    <option value="9">9 pt</option>
+                    <option value="10">10 pt</option>
+                    <option value="11">11 pt</option>
+                    <option value="12">12 pt</option>
+                </select>
+            </div>
+            <div class="opt-group">
+                <label>Pàgines</label>
+                <input type="text" id="optPages" placeholder="Totes" style="width: 100px;">
+            </div>
+            <button class="btn-process" id="btnProcess" disabled>
+                Anotar acords
+            </button>
+        </div>
+
+        <!-- Pipeline visual -->
+        <div class="progress-area" id="progressArea">
+            <div class="pipeline" id="pipeline">
+                <div class="pipe-step" data-step="upload"><span class="ps-ico">&#128196;</span> Pujada</div>
+                <span class="pipe-arrow">&#9654;</span>
+                <div class="pipe-step" data-step="barlines"><span class="ps-ico">&#124;</span> Barres</div>
+                <span class="pipe-arrow">&#9654;</span>
+                <div class="pipe-step" data-step="notes"><span class="ps-ico">&#9835;</span> Notes</div>
+                <span class="pipe-arrow">&#9654;</span>
+                <div class="pipe-step" data-step="chords"><span class="ps-ico">&#127929;</span> Acords</div>
+                <span class="pipe-arrow">&#9654;</span>
+                <div class="pipe-step" data-step="annotate"><span class="ps-ico">&#9998;</span> Anotació</div>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-log" id="progressLog"></div>
+        </div>
+
+        <!-- Error -->
+        <div class="error-toast" id="errorToast"></div>
+
+        <!-- Result -->
+        <div class="result-area" id="resultArea">
+            <div class="result-success">&#10003; Partitura anotada correctament</div>
+            <a class="btn-download" id="btnDownload" download>
+                &#128229; Descarregar PDF anotat
+            </a>
+        </div>
+
+        <!-- Preview -->
+        <div class="preview-area" id="previewArea">
+            <iframe class="preview-frame" id="previewFrame"></iframe>
+        </div>
+    </div>
+
+    <!-- Supported chords -->
+    <div class="card">
+        <div class="card-title">Acords suportats</div>
+        <div class="chord-types">
+            <div class="ct-group-title">Triades</div>
+            <div class="ct-item"><span class="ct-sym">C</span><span class="ct-name">Major</span></div>
+            <div class="ct-item"><span class="ct-sym">Cm</span><span class="ct-name">Menor</span></div>
+            <div class="ct-item"><span class="ct-sym">Cdim</span><span class="ct-name">Disminuït</span></div>
+            <div class="ct-item"><span class="ct-sym">Caug</span><span class="ct-name">Augmentat</span></div>
+            <div class="ct-item"><span class="ct-sym">Csus2</span><span class="ct-name">Suspès 2a</span></div>
+            <div class="ct-item"><span class="ct-sym">Csus4</span><span class="ct-name">Suspès 4a</span></div>
+
+            <div class="ct-group-title">Acords de 7a</div>
+            <div class="ct-item"><span class="ct-sym">Cmaj7</span><span class="ct-name">Major 7a</span></div>
+            <div class="ct-item"><span class="ct-sym">C7</span><span class="ct-name">Dominant 7a</span></div>
+            <div class="ct-item"><span class="ct-sym">Cm7</span><span class="ct-name">Menor 7a</span></div>
+            <div class="ct-item"><span class="ct-sym">Cm&#8710;7</span><span class="ct-name">Menor major 7a</span></div>
+            <div class="ct-item"><span class="ct-sym">C&#248;</span><span class="ct-name">Semidisminuït</span></div>
+            <div class="ct-item"><span class="ct-sym">Cdim7</span><span class="ct-name">Disminuït 7a</span></div>
+
+            <div class="ct-group-title">Extensos i altres</div>
+            <div class="ct-item"><span class="ct-sym">C6</span><span class="ct-name">Major 6a</span></div>
+            <div class="ct-item"><span class="ct-sym">Cm6</span><span class="ct-name">Menor 6a</span></div>
+            <div class="ct-item"><span class="ct-sym">C7#11</span><span class="ct-name">Lidi dominant</span></div>
+            <div class="ct-item"><span class="ct-sym">C7b9</span><span class="ct-name">Dominant b9</span></div>
+            <div class="ct-item"><span class="ct-sym">C/E</span><span class="ct-name">Slash chords</span></div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+(() => {
+    const API = (() => {
+        const isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
+        return isLocal ? 'http://localhost:5070' : '/acords';
+    })();
+
+    const $ = id => document.getElementById(id);
+    const dropzone = $('dropzone');
+    const fileInput = $('fileInput');
+    const btnProcess = $('btnProcess');
+    const progressArea = $('progressArea');
+    const progressFill = $('progressFill');
+    const progressLog = $('progressLog');
+    const resultArea = $('resultArea');
+    const previewArea = $('previewArea');
+    const errorToast = $('errorToast');
+
+    let selectedFile = null;
+
+    // --- File selection ---
+    fileInput.addEventListener('change', e => {
+        if (e.target.files.length) selectFile(e.target.files[0]);
+    });
+
+    dropzone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) selectFile(e.dataTransfer.files[0]);
+    });
+
+    $('fileRemove').addEventListener('click', e => {
+        e.stopPropagation();
+        clearFile();
+    });
+
+    function selectFile(file) {
+        const name = file.name.toLowerCase();
+        if (!name.endsWith('.pdf') && !name.endsWith('.xml') && !name.endsWith('.musicxml') && !name.endsWith('.mxl')) {
+            showError('Només fitxers PDF o MusicXML (.xml, .musicxml, .mxl)');
+            return;
+        }
+        selectedFile = file;
+        $('fileName').textContent = file.name;
+        const sizeMB = (file.size / 1048576).toFixed(1);
+        $('filePages').textContent = `(${sizeMB} MB)`;
+        dropzone.classList.add('has-file');
+        btnProcess.disabled = false;
+        hideError();
+        resultArea.classList.remove('active');
+        previewArea.classList.remove('active');
+    }
+
+    function clearFile() {
+        selectedFile = null;
+        fileInput.value = '';
+        dropzone.classList.remove('has-file');
+        btnProcess.disabled = true;
+    }
+
+    // --- Process ---
+    btnProcess.addEventListener('click', () => {
+        if (!selectedFile) return;
+        processFile();
+    });
+
+    async function processFile() {
+        hideError();
+        resultArea.classList.remove('active');
+        previewArea.classList.remove('active');
+        progressArea.classList.add('active');
+        progressLog.innerHTML = '';
+        progressFill.style.width = '0%';
+        btnProcess.disabled = true;
+        resetPipeline();
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('notation', $('optNotation').value);
+        formData.append('font_size', $('optFontSize').value);
+        const pages = $('optPages').value.trim();
+        if (pages) formData.append('pages', pages);
+
+        setStep('upload', 'active');
+        log('Pujant PDF...', 'info');
+
+        try {
+            const resp = await fetch(`${API}/annotate`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ error: `Error ${resp.status}` }));
+                throw new Error(err.error || `Error ${resp.status}`);
+            }
+
+            // Check if streaming (SSE) or direct response
+            const contentType = resp.headers.get('content-type') || '';
+
+            if (contentType.includes('text/event-stream')) {
+                await handleSSE(resp);
+            } else if (contentType.includes('application/pdf')) {
+                // Direct PDF response
+                setStep('upload', 'done');
+                setStep('barlines', 'done');
+                setStep('notes', 'done');
+                setStep('chords', 'done');
+                setStep('annotate', 'done');
+                progressFill.style.width = '100%';
+                log('Processament completat!', 'ok');
+
+                const blob = await resp.blob();
+                showResult(blob);
+            } else if (contentType.includes('application/json')) {
+                // JSON with download URL
+                const data = await resp.json();
+                if (data.download_url) {
+                    setStep('upload', 'done');
+                    setStep('barlines', 'done');
+                    setStep('notes', 'done');
+                    setStep('chords', 'done');
+                    setStep('annotate', 'done');
+                    progressFill.style.width = '100%';
+
+                    for (const msg of (data.log || [])) {
+                        log(msg.text, msg.type || 'info');
+                    }
+                    log('Processament completat!', 'ok');
+
+                    const dlResp = await fetch(`${API}${data.download_url}`);
+                    const blob = await dlResp.blob();
+                    showResult(blob);
+                }
+            } else {
+                // Unexpected response (e.g. HTML error page)
+                const text = await resp.text();
+                const match = text.match(/<title>(.*?)<\/title>/i) || text.match(/<h1>(.*?)<\/h1>/i);
+                const msg = match ? match[1] : `Resposta inesperada del servidor (${contentType})`;
+                throw new Error(msg);
+            }
+        } catch (err) {
+            showError(err.message);
+            log(err.message, 'err');
+        }
+
+        btnProcess.disabled = false;
+    }
+
+    async function handleSSE(resp) {
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const evt = JSON.parse(line.slice(6));
+                    handleEvent(evt);
+                } catch {}
+            }
+        }
+    }
+
+    function handleEvent(evt) {
+        switch (evt.type) {
+            case 'step':
+                setStep(evt.step, evt.status);
+                if (evt.progress) progressFill.style.width = evt.progress + '%';
+                break;
+            case 'log':
+                log(evt.text, evt.level || 'info');
+                break;
+            case 'done':
+                progressFill.style.width = '100%';
+                log('Processament completat!', 'ok');
+                if (evt.download_url) {
+                    fetch(`${API}${evt.download_url}`)
+                        .then(r => r.blob())
+                        .then(showResult);
+                }
+                break;
+            case 'error':
+                showError(evt.message);
+                log(evt.message, 'err');
+                break;
+        }
+    }
+
+    // --- UI helpers ---
+    function setStep(name, status) {
+        const el = document.querySelector(`.pipe-step[data-step="${name}"]`);
+        if (!el) return;
+        el.classList.remove('done', 'active', 'error');
+        el.classList.add(status);
+    }
+
+    function resetPipeline() {
+        document.querySelectorAll('.pipe-step').forEach(el => {
+            el.classList.remove('done', 'active', 'error');
+        });
+    }
+
+    function log(text, level = 'info') {
+        const span = document.createElement('div');
+        span.className = `log-${level}`;
+        span.textContent = text;
+        progressLog.appendChild(span);
+        progressLog.scrollTop = progressLog.scrollHeight;
+    }
+
+    function showResult(blob) {
+        const url = URL.createObjectURL(blob);
+        const fname = selectedFile.name.replace(/\.(pdf|xml|musicxml|mxl)$/i, '_acordes.pdf');
+        $('btnDownload').href = url;
+        $('btnDownload').download = fname;
+        resultArea.classList.add('active');
+
+        // Preview
+        $('previewFrame').src = url;
+        previewArea.classList.add('active');
+    }
+
+    function showError(msg) {
+        errorToast.textContent = msg;
+        errorToast.classList.add('active');
+    }
+
+    function hideError() {
+        errorToast.classList.remove('active');
+    }
+
+    // Resolve nav links for local vs remote
+    const isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
+    document.querySelectorAll('[data-local][data-remote]').forEach(a => {
+        a.href = isLocal ? a.dataset.local : a.dataset.remote;
+    });
+})();
+</script>
+</body>
+</html>

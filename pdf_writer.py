@@ -22,6 +22,10 @@ from config import (
     BARLINE_DEDUP_DISTANCE,
     ANGLO_TO_LATIN,
     LATIN_TO_ANGLO,
+    CHORD_TONE_COLOR,
+    PASSING_TONE_COLOR,
+    HIGHLIGHT_RADIUS,
+    HIGHLIGHT_OPACITY,
 )
 
 
@@ -397,6 +401,25 @@ def _place_chords(
         )
 
 
+def _draw_note_highlights(page: fitz.Page, note_highlights: list[dict]) -> None:
+    """Draw colored circles behind noteheads to distinguish chord tones from passing tones.
+
+    Chord tones get a green circle; non-chord tones get a red-orange circle.
+    """
+    for nh in note_highlights:
+        x, y = nh["x"], nh["y"]
+        is_ct = nh["is_chord_tone"]
+        color = CHORD_TONE_COLOR if is_ct else PASSING_TONE_COLOR
+        center = fitz.Point(x, y)
+        page.draw_circle(
+            center,
+            HIGHLIGHT_RADIUS,
+            color=None,
+            fill=color,
+            fill_opacity=HIGHLIGHT_OPACITY,
+        )
+
+
 def annotate_page(
     page: fitz.Page,
     layout: PageLayout,
@@ -408,6 +431,7 @@ def annotate_page(
 
     Right-hand chords (treble) are placed above the system in blue.
     Left-hand chords (bass) are placed below the system in green.
+    Notes are highlighted: green = chord tone, red-orange = passing tone.
     """
     analysis_systems = analysis.get("systems", [])
 
@@ -441,6 +465,11 @@ def annotate_page(
             left_x = sys_layout.barlines[mi].x
             right_x = sys_layout.barlines[mi + 1].x
             measure_width = right_x - left_x
+
+            # --- Highlight chord tones vs passing tones ---
+            note_highlights = measure.get("note_highlights", [])
+            if note_highlights:
+                _draw_note_highlights(page, note_highlights)
 
             # --- Combined chord symbols above system ---
             chords = measure.get("chords", [])

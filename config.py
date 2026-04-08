@@ -24,6 +24,12 @@ MAX_FONT_SIZE = 14.0
 PADDING_ABOVE_STAFF = 12.0  # points above staff top
 PADDING_BELOW_STAFF = 6.0   # points below staff bottom
 
+# Note highlighting (chord tone vs passing tone)
+CHORD_TONE_COLOR = (0.180, 0.650, 0.290)      # green — chord tone
+PASSING_TONE_COLOR = (0.850, 0.330, 0.200)     # red-orange — passing/non-chord tone
+HIGHLIGHT_RADIUS = 4.0                          # circle radius around notehead (pt)
+HIGHLIGHT_OPACITY = 0.30                        # fill opacity for highlights
+
 # Barline detection thresholds
 MIN_BARLINE_HEIGHT = 45.0   # must span a full staff system (~52pt), not just a stem (~25pt)
 MAX_BARLINE_HEIGHT_FRAC = 0.5  # reject lines taller than 50% of page (borders/margins)

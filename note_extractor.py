@@ -52,7 +52,22 @@ CLEF_CODEPOINTS = {
 KEY_SIG_ACCIDENTAL_CODEPOINTS = {0xE260, 0xE261, 0xE262}
 
 NOTE_NAMES = ["C", "D", "E", "F", "G", "A", "B"]
-MUSIC_FONTS = {"Leland", "LelandText", "MScore", "BravuraText", "Bravura"}
+MUSIC_FONTS = {"Leland", "LelandText", "MScore", "BravuraText", "Bravura", "Doremi"}
+
+# Doremi font glyph mappings (non-SMuFL music font)
+DOREMI_NOTEHEAD_CODEPOINTS = {
+    0x00CF: "filled",  # Ï — black notehead
+    0x00FA: "half",    # ú — half notehead
+    0x00CE: "whole",   # Î — whole notehead
+}
+DOREMI_ACCIDENTAL_CODEPOINTS = {
+    0x0023: 1,   # # — sharp
+    0x0062: -1,  # b — flat (lowercase b in Doremi font)
+}
+DOREMI_CLEF_CODEPOINTS = {
+    0x0047: "treble",  # G — treble clef
+    0x0046: "bass",    # F — bass clef
+}
 
 
 # ---------------------------------------------------------------------------
@@ -212,10 +227,17 @@ def _detect_staff_lines(page: fitz.Page) -> list[list[float]]:
     for i, y0 in enumerate(unique_ys):
         if i in used:
             continue
-        # Try standard spacings from STAFF_SPACING_MIN to STAFF_SPACING_MAX
-        # Find a spacing that works for all 5 lines
-        for spacing_candidate in [4.97, 5.0, 4.5, 5.5]:
-            if not (STAFF_SPACING_MIN <= spacing_candidate <= STAFF_SPACING_MAX):
+        # Build candidate spacings: fixed common values + adaptive from nearby Y
+        spacing_candidates = [4.97, 5.0, 4.5, 5.5, 4.0, 4.125, 4.25]
+        # Also try spacing derived from the next unused Y
+        for j in range(i + 1, min(i + 6, len(unique_ys))):
+            if j not in used:
+                derived = unique_ys[j] - y0
+                if STAFF_SPACING_MIN - 0.2 <= derived <= STAFF_SPACING_MAX + 0.2:
+                    spacing_candidates.append(derived)
+                break
+        for spacing_candidate in spacing_candidates:
+            if not (STAFF_SPACING_MIN - 0.2 <= spacing_candidate <= STAFF_SPACING_MAX + 0.2):
                 continue
             indices = [i]
             ok = True
@@ -232,7 +254,7 @@ def _detect_staff_lines(page: fitz.Page) -> list[list[float]]:
                 spacings = [group[j + 1] - group[j] for j in range(4)]
                 variance = max(spacings) - min(spacings)
                 avg_sp = sum(spacings) / 4
-                if (STAFF_SPACING_MIN <= avg_sp <= STAFF_SPACING_MAX
+                if (STAFF_SPACING_MIN - 0.2 <= avg_sp <= STAFF_SPACING_MAX + 0.2
                         and variance < STAFF_SPACING_TOLERANCE + 0.3):
                     staff_groups.append(group)
                     for idx in indices:
@@ -248,8 +270,41 @@ def _detect_staff_lines(page: fitz.Page) -> list[list[float]]:
 # Step 2: Detect clefs
 # ---------------------------------------------------------------------------
 
+def _is_doremi_font(font_name: str) -> bool:
+    return "Doremi" in font_name
+
+
+def _normalize_codepoint(cp: int, font_name: str) -> int:
+    """Translate font-specific codepoints to SMuFL equivalents."""
+    if not _is_doremi_font(font_name):
+        return cp
+    # Map Doremi noteheads to SMuFL
+    if cp in DOREMI_NOTEHEAD_CODEPOINTS:
+        ntype = DOREMI_NOTEHEAD_CODEPOINTS[cp]
+        for smufl_cp, stype in NOTEHEAD_CODEPOINTS.items():
+            if stype == ntype:
+                return smufl_cp
+    # Map Doremi clefs to SMuFL
+    if cp in DOREMI_CLEF_CODEPOINTS:
+        ctype = DOREMI_CLEF_CODEPOINTS[cp]
+        for smufl_cp, stype in CLEF_CODEPOINTS.items():
+            if stype == ctype:
+                return smufl_cp
+    # Map Doremi accidentals to SMuFL
+    if cp in DOREMI_ACCIDENTAL_CODEPOINTS:
+        aval = DOREMI_ACCIDENTAL_CODEPOINTS[cp]
+        for smufl_cp, sval in ACCIDENTAL_CODEPOINTS.items():
+            if sval == aval:
+                return smufl_cp
+    return cp
+
+
 def _iter_music_chars(page: fitz.Page):
-    """Yield (x, y, codepoint, font_name) for all music-font characters."""
+    """Yield (x, y, codepoint, font_name) for all music-font characters.
+
+    Codepoints from non-SMuFL fonts (e.g. Doremi) are normalised to their
+    SMuFL equivalents so that downstream code needs only one set of constants.
+    """
     rawdict = page.get_text("rawdict")
     for block in rawdict.get("blocks", []):
         for line in block.get("lines", []):
@@ -259,6 +314,7 @@ def _iter_music_chars(page: fitz.Page):
                     continue
                 for ch in span.get("chars", []):
                     cp = ord(ch["c"]) if len(ch["c"]) == 1 else 0
+                    cp = _normalize_codepoint(cp, font)
                     origin = ch["origin"]
                     yield origin[0], origin[1], cp, font
 
