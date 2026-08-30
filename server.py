@@ -327,6 +327,244 @@ def annotate():
     )
 
 
+# ---------------------------------------------------------------------------
+# Deep harmonic analysis via Claude
+# ---------------------------------------------------------------------------
+
+def _format_notes_for_claude(mxml_data, notation="latin"):
+    """Format MusicXML data as structured text for Claude analysis."""
+    from config import ANGLO_TO_LATIN
+
+    key_names_sharp = ["Do", "Sol", "Re", "La", "Mi", "Si", "Fa#"]
+    key_names_flat = ["Do", "Fa", "Sib", "Mib", "Lab", "Reb", "Solb"]
+    if mxml_data.key_sharps >= 0:
+        key_name = key_names_sharp[min(mxml_data.key_sharps, 6)]
+    else:
+        key_name = key_names_flat[min(-mxml_data.key_sharps, 6)]
+    mode_cat = "major" if mxml_data.key_mode == "major" else "menor"
+
+    lines = []
+    lines.append(f"TÍTOL: {mxml_data.title or 'Sense títol'}")
+    lines.append(f"TONALITAT: {key_name} {mode_cat}")
+    lines.append(f"COMPÀS: {mxml_data.time_num}/{mxml_data.time_den}")
+    lines.append(f"TOTAL COMPASSOS: {mxml_data.total_measures}")
+    lines.append("")
+
+    def _note_name(note):
+        name = note.pitch_name
+        if notation == "latin":
+            name = ANGLO_TO_LATIN.get(name, name)
+        acc = ""
+        if note.accidental == 1:
+            acc = "#"
+        elif note.accidental == -1:
+            acc = "b"
+        elif note.accidental == 2:
+            acc = "##"
+        elif note.accidental == -2:
+            acc = "bb"
+        return f"{name}{acc}{note.octave}"
+
+    for measure in mxml_data.measures:
+        mi = measure.measure_index + 1
+        treble_notes = []
+        bass_notes = []
+        for ng in measure.note_groups:
+            beat = round(ng.x, 2)
+            for n in sorted(ng.notes, key=lambda x: -x.midi_pitch):
+                entry = f"{_note_name(n)}(t={beat})"
+                if n.staff == "bass":
+                    bass_notes.append(entry)
+                else:
+                    treble_notes.append(entry)
+
+        lines.append(f"COMPÀS {mi}:")
+        lines.append(f"  Mà dreta (clau sol): {', '.join(treble_notes) if treble_notes else '(silenci)'}")
+        lines.append(f"  Mà esquerra (clau fa): {', '.join(bass_notes) if bass_notes else '(silenci)'}")
+
+    return "\n".join(lines)
+
+
+HARMONIC_ANALYSIS_SYSTEM_PROMPT = """\
+Ets un professor expert en harmonia musical i anàlisi tonal amb anys d'experiència \
+ensenyant a conservatoris. Fas anàlisi harmònica professional, precisa i didàctica.
+
+TASCA: Analitza compàs per compàs la partitura de piano proporcionada. Produeix una \
+anàlisi harmònica completa i rigorosa en català.
+
+═══ QUÈ HAS D'ANALITZAR PER CADA COMPÀS ═══
+
+1. **Acord**: Identifica l'acord amb símbol jazz (Do, Rem, Sol7, Faø, etc.) usant \
+notació llatina (Do Re Mi Fa Sol La Si).
+
+2. **Numeral romà**: Grau dins la tonalitat actual (I, ii, iii, IV, V, vi, viiº). \
+Majúscules = major, minúscules = menor. Afegeix 7 si escau (V7, viio7, ii7, etc.).
+
+3. **Funció tonal**: T (tònica), S (subdominant), D (dominant), DD (dominant de la \
+dominant), tp (tònica paral·lela = relatiu menor de la tònica), sp (subdominant \
+paral·lela), dp (dominant paral·lela). Usa la nomenclatura funcional de Riemann.
+
+4. **Inversió**: Estat fonamental (EF), 1a inversió (6), 2a inversió (6/4), \
+3a inversió d'un acord de 7a (4/2, 6/5, 4/3). Indica el baix real.
+
+5. **Notes no harmòniques**: Identifica notes de pas, retards, brodadures \
+(mordents), apoggiatures, escapades, anticipacions. Especifica quines notes \
+exactes són i de quin tipus.
+
+6. **Cadències**: Identifica cadències quan es produeixin: \
+perfecta (V→I), imperfecta, plagal (IV→I), semicadència (→V), \
+rota/enganyosa (V→vi), frigiana, napolitana.
+
+7. **Modulacions**: Detecta canvis de tonalitat. Indica la tonalitat d'origen, \
+la nova tonalitat, l'acord pivot (si n'hi ha) i el tipus de modulació \
+(diatònica, cromàtica, enarmònica, directa).
+
+8. **Observacions didàctiques**: Per cada compàs o grup de compassos, afegeix \
+comentaris que ajudin l'estudiant a entendre: progressions típiques, patrons \
+recurrents, relacions entre veus, conducció de veus notable.
+
+═══ FORMAT DE SORTIDA — JSON vàlid ═══
+
+{
+  "title": "<títol de l'obra>",
+  "key": "<tonalitat principal, ex: Do major>",
+  "time_signature": "<compàs, ex: 4/4>",
+  "structure": "<descripció breu de la forma: ABA, binària, sonata, etc.>",
+  "measures": [
+    {
+      "measure": <número>,
+      "chord_symbol": "<símbol acord en notació llatina>",
+      "roman_numeral": "<numeral romà amb qualitat>",
+      "tonal_function": "<T/S/D/DD/tp/sp/dp>",
+      "inversion": "<EF/6/6_4/6_5/4_3/4_2>",
+      "bass_note": "<nota del baix>",
+      "non_harmonic_tones": [
+        {"note": "<nota>", "type": "<pas/retard/brodadura/appogiatura/escapada/anticipació>"}
+      ],
+      "cadence": "<null o tipus de cadència>",
+      "modulation": "<null o descripció>",
+      "observations": "<comentari didàctic breu>"
+    }
+  ],
+  "modulations_summary": [
+    {"from_key": "<tonalitat>", "to_key": "<tonalitat>", "at_measure": <n>, "type": "<tipus>", "pivot_chord": "<acord pivot o null>"}
+  ],
+  "pedagogical_summary": "<resum de 3-5 paràgrafs per a l'estudiant: estructura harmònica general, progressions principals, elements destacables, consells per a la memorització i interpretació>"
+}
+
+═══ REGLES IMPORTANTS ═══
+- Usa SEMPRE notació llatina: Do Re Mi Fa Sol La Si (NO C D E F G A B)
+- Sigues rigorós amb la identificació d'inversions — mira sempre el baix real
+- No simplifiquis: si un acord té 7a, 9a, etc., indica-ho
+- Quan hi hagi ambigüitat, explica les possibles interpretacions
+- El resum pedagògic ha de ser útil per a un estudiant de piano intermedi
+- Respon NOMÉS amb el JSON, sense text addicional
+"""
+
+
+def _deep_harmonic_analysis(mxml_data, notation="latin"):
+    """Send parsed MusicXML data to Claude for deep harmonic analysis."""
+    import anthropic
+    from analyzer import _extract_json_from_response
+    from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+
+    notes_text = _format_notes_for_claude(mxml_data, notation)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    with client.messages.stream(
+        model=CLAUDE_MODEL,
+        max_tokens=32000,
+        thinking={
+            "type": "enabled",
+            "budget_tokens": 16000,
+        },
+        system=HARMONIC_ANALYSIS_SYSTEM_PROMPT,
+        messages=[{
+            "role": "user",
+            "content": (
+                f"Analitza harmònicament aquesta partitura de piano compàs per compàs.\n\n"
+                f"{notes_text}"
+            ),
+        }],
+    ) as stream:
+        response = stream.get_final_message()
+
+    response_text = ""
+    for block in response.content:
+        if block.type == "text":
+            response_text = block.text
+            break
+    if not response_text:
+        raise ValueError("Resposta buida de Claude")
+
+    return _extract_json_from_response(response_text)
+
+
+@app.route("/harmonic-analysis", methods=["POST"])
+def harmonic_analysis():
+    """Deep harmonic analysis of a MusicXML file via Claude."""
+    if "file" not in request.files:
+        return jsonify({"error": "Cap fitxer enviat"}), 400
+
+    file = request.files["file"]
+    fname_lower = file.filename.lower()
+    is_musicxml = (
+        fname_lower.endswith(".xml")
+        or fname_lower.endswith(".musicxml")
+        or fname_lower.endswith(".mxl")
+    )
+    if not is_musicxml:
+        return jsonify({"error": "Només fitxers MusicXML (.xml, .musicxml, .mxl)"}), 400
+
+    import zipfile
+
+    notation = request.form.get("notation", "latin")
+    job_id = uuid.uuid4().hex[:12]
+
+    if fname_lower.endswith(".mxl"):
+        mxl_path = os.path.join(UPLOAD_DIR, f"{job_id}_input.mxl")
+        file.save(mxl_path)
+        try:
+            with zipfile.ZipFile(mxl_path, "r") as zf:
+                xml_names = [n for n in zf.namelist()
+                             if n.endswith(".xml") and not n.startswith("META-INF")]
+                if not xml_names:
+                    return jsonify({"error": "No s'ha trobat cap .xml dins del .mxl"}), 400
+                input_path = os.path.join(UPLOAD_DIR, f"{job_id}_input.xml")
+                with open(input_path, "wb") as out:
+                    out.write(zf.read(xml_names[0]))
+        except zipfile.BadZipFile:
+            return jsonify({"error": "El fitxer .mxl no és un ZIP vàlid"}), 400
+        finally:
+            try:
+                os.remove(mxl_path)
+            except OSError:
+                pass
+    else:
+        ext = ".musicxml" if fname_lower.endswith(".musicxml") else ".xml"
+        input_path = os.path.join(UPLOAD_DIR, f"{job_id}_input{ext}")
+        file.save(input_path)
+
+    try:
+        mxml_data = parse_musicxml(input_path)
+    except Exception as e:
+        return jsonify({"error": f"Error processant MusicXML: {e}"}), 400
+
+    try:
+        result = _deep_harmonic_analysis(mxml_data, notation)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error en l'anàlisi harmònica: {e}"}), 400
+    finally:
+        try:
+            os.remove(input_path)
+        except OSError:
+            pass
+
+    return jsonify(result)
+
+
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5070
     print(f"Annotador d'Acords PDF server on http://localhost:{port}")
