@@ -454,6 +454,10 @@ recurrents, relacions entre veus, conducció de veus notable.
 }
 
 ═══ REGLES IMPORTANTS ═══
+- PRIMER DE TOT: identifica l'armadura de clau comptant EXACTAMENT el nombre de \
+sostinguts o bemolls. Referència: 0=Do, 1#=Sol, 2#=Re, 3#=La, 4#=Mi, 5#=Si, \
+6#=Fa#, 1b=Fa, 2b=Sib, 3b=Mib, 4b=Lab, 5b=Reb, 6b=Solb. Un error en la \
+tonalitat invalida TOTA l'anàlisi. Compta cada sostingut/bemoll individualment.
 - Usa SEMPRE notació llatina: Do Re Mi Fa Sol La Si (NO C D E F G A B)
 - Sigues rigorós amb la identificació d'inversions — mira sempre el baix real
 - No simplifiquis: si un acord té 7a, 9a, etc., indica-ho
@@ -526,7 +530,13 @@ def _deep_harmonic_analysis_vision(page_images, notation="latin"):
         "type": "text",
         "text": (
             f"Analitza harmònicament aquesta partitura de piano compàs per compàs. "
-            f"Usa notació {notation_str}."
+            f"Usa notació {notation_str}. "
+            f"MOLT IMPORTANT: Abans de tot, examina amb molta cura l'armadura de clau "
+            f"(key signature) al principi del pentagrama. Compta un per un els sostinguts "
+            f"(#) o bemolls (b) que hi apareixen. Referència ràpida: "
+            f"1#=Sol, 2#=Re, 3#=La, 4#=Mi, 5#=Si. "
+            f"1b=Fa, 2b=Sib, 3b=Mib, 4b=Lab. "
+            f"La tonalitat correcta és fonamental per a tota l'anàlisi."
         ),
     })
 
@@ -587,7 +597,7 @@ def harmonic_analysis():
             if len(page_indices) > MAX_PAGES:
                 page_indices = page_indices[:MAX_PAGES]
 
-            ANALYSIS_DPI = 150
+            ANALYSIS_DPI = 250
             images = []
             for idx in page_indices:
                 images.append(render_page_to_png(doc[idx], dpi=ANALYSIS_DPI))
