@@ -583,13 +583,14 @@ def harmonic_analysis():
             total = len(doc)
             page_indices = parse_pages(pages_str, total) if pages_str else list(range(total))
 
-            MAX_PAGES = 5
+            MAX_PAGES = 3
             if len(page_indices) > MAX_PAGES:
                 page_indices = page_indices[:MAX_PAGES]
 
+            ANALYSIS_DPI = 150
             images = []
             for idx in page_indices:
-                images.append(render_page_to_png(doc[idx]))
+                images.append(render_page_to_png(doc[idx], dpi=ANALYSIS_DPI))
             doc.close()
 
             result = _deep_harmonic_analysis_vision(images, notation)
