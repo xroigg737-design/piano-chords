@@ -583,6 +583,10 @@ def harmonic_analysis():
             total = len(doc)
             page_indices = parse_pages(pages_str, total) if pages_str else list(range(total))
 
+            MAX_PAGES = 5
+            if len(page_indices) > MAX_PAGES:
+                page_indices = page_indices[:MAX_PAGES]
+
             images = []
             for idx in page_indices:
                 images.append(render_page_to_png(doc[idx]))
@@ -650,4 +654,4 @@ def harmonic_analysis():
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5070
     print(f"Annotador d'Acords PDF server on http://localhost:{port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
