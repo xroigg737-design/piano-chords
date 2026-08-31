@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Flask server for Piano Chord Annotator web interface."""
 
+import base64
 import os
 import sys
 import tempfile
@@ -500,9 +501,60 @@ def _deep_harmonic_analysis(mxml_data, notation="latin"):
     return _extract_json_from_response(response_text)
 
 
+def _deep_harmonic_analysis_vision(page_images, notation="latin"):
+    """Send PDF page images to Claude for direct visual harmonic analysis."""
+    import anthropic
+    from analyzer import _extract_json_from_response
+    from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+
+    content = []
+    for i, png_bytes in enumerate(page_images):
+        b64 = base64.b64encode(png_bytes).decode()
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+        })
+        if len(page_images) > 1:
+            content.append({"type": "text", "text": f"(Pàgina {i + 1})"})
+
+    notation_str = (
+        "llatina (Do Re Mi Fa Sol La Si)"
+        if notation == "latin"
+        else "anglosaxona (C D E F G A B)"
+    )
+    content.append({
+        "type": "text",
+        "text": (
+            f"Analitza harmònicament aquesta partitura de piano compàs per compàs. "
+            f"Usa notació {notation_str}."
+        ),
+    })
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    with client.messages.stream(
+        model=CLAUDE_MODEL,
+        max_tokens=32000,
+        thinking={"type": "enabled", "budget_tokens": 16000},
+        system=HARMONIC_ANALYSIS_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": content}],
+    ) as stream:
+        response = stream.get_final_message()
+
+    response_text = ""
+    for block in response.content:
+        if block.type == "text":
+            response_text = block.text
+            break
+    if not response_text:
+        raise ValueError("Resposta buida de Claude")
+
+    return _extract_json_from_response(response_text)
+
+
 @app.route("/harmonic-analysis", methods=["POST"])
 def harmonic_analysis():
-    """Deep harmonic analysis of a MusicXML file via Claude."""
+    """Deep harmonic analysis of a MusicXML or PDF file via Claude."""
     if "file" not in request.files:
         return jsonify({"error": "Cap fitxer enviat"}), 400
 
@@ -513,13 +565,43 @@ def harmonic_analysis():
         or fname_lower.endswith(".musicxml")
         or fname_lower.endswith(".mxl")
     )
-    if not is_musicxml:
-        return jsonify({"error": "Només fitxers MusicXML (.xml, .musicxml, .mxl)"}), 400
+    is_pdf = fname_lower.endswith(".pdf")
 
-    import zipfile
+    if not is_musicxml and not is_pdf:
+        return jsonify({"error": "Només fitxers MusicXML (.xml, .musicxml, .mxl) o PDF"}), 400
 
     notation = request.form.get("notation", "latin")
     job_id = uuid.uuid4().hex[:12]
+
+    # --- PDF path: render pages → Claude Vision ---
+    if is_pdf:
+        input_path = os.path.join(UPLOAD_DIR, f"{job_id}_input.pdf")
+        file.save(input_path)
+        try:
+            doc = fitz.open(input_path)
+            pages_str = request.form.get("pages", "")
+            total = len(doc)
+            page_indices = parse_pages(pages_str, total) if pages_str else list(range(total))
+
+            images = []
+            for idx in page_indices:
+                images.append(render_page_to_png(doc[idx]))
+            doc.close()
+
+            result = _deep_harmonic_analysis_vision(images, notation)
+            return jsonify(result)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({"error": f"Error en l'anàlisi del PDF: {e}"}), 400
+        finally:
+            try:
+                os.remove(input_path)
+            except OSError:
+                pass
+
+    # --- MusicXML path ---
+    import zipfile
 
     if fname_lower.endswith(".mxl"):
         mxl_path = os.path.join(UPLOAD_DIR, f"{job_id}_input.mxl")
