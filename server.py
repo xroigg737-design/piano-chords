@@ -749,6 +749,24 @@ def harmonic_analysis():
     except Exception as e:
         return jsonify({"error": f"Error processant MusicXML: {e}"}), 400
 
+    measures_str = request.form.get("measures", "")
+    if measures_str:
+        total_m = mxml_data.total_measures
+        m_indices = set()
+        for part in measures_str.split(","):
+            part = part.strip()
+            if "-" in part:
+                s, e = part.split("-", 1)
+                for i in range(max(1, int(s)), min(total_m, int(e)) + 1):
+                    m_indices.add(i - 1)
+            else:
+                idx = int(part) - 1
+                if 0 <= idx < total_m:
+                    m_indices.add(idx)
+        if m_indices:
+            mxml_data.measures = [m for m in mxml_data.measures if m.measure_index in m_indices]
+            mxml_data.total_measures = len(mxml_data.measures)
+
     try:
         result = _deep_harmonic_analysis(mxml_data, notation)
     except Exception as e:
