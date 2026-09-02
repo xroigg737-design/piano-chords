@@ -749,6 +749,16 @@ def harmonic_analysis():
     except Exception as e:
         return jsonify({"error": f"Error processant MusicXML: {e}"}), 400
 
+    import shutil
+    debug_copy = os.path.join(UPLOAD_DIR, f"{job_id}_debug.xml")
+    try:
+        shutil.copy2(input_path, debug_copy)
+    except Exception:
+        pass
+    print(f"[HARMONIC DEBUG] file={file.filename}, key_sharps={mxml_data.key_sharps}, "
+          f"key_mode={mxml_data.key_mode}, total_measures={mxml_data.total_measures}, "
+          f"title={mxml_data.title}")
+
     measures_str = request.form.get("measures", "")
     if measures_str:
         total_m = mxml_data.total_measures
@@ -767,6 +777,9 @@ def harmonic_analysis():
             mxml_data.measures = [m for m in mxml_data.measures if m.measure_index in m_indices]
             mxml_data.total_measures = len(mxml_data.measures)
 
+    notes_preview = _format_notes_for_claude(mxml_data, notation)
+    print(f"[HARMONIC DEBUG] First 500 chars sent to Claude:\n{notes_preview[:500]}")
+
     try:
         result = _deep_harmonic_analysis(mxml_data, notation)
     except Exception as e:
@@ -779,6 +792,12 @@ def harmonic_analysis():
         except OSError:
             pass
 
+    result["_debug"] = {
+        "xml_key_sharps": mxml_data.key_sharps,
+        "xml_key_mode": mxml_data.key_mode,
+        "xml_title": mxml_data.title,
+        "measures_analyzed": mxml_data.total_measures,
+    }
     return jsonify(result)
 
 
