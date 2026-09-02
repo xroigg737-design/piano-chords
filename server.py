@@ -499,7 +499,7 @@ def _deep_harmonic_analysis(mxml_data, notation="latin"):
 
     with client.messages.stream(
         model=CLAUDE_MODEL,
-        max_tokens=32000,
+        max_tokens=64000,
         thinking={
             "type": "enabled",
             "budget_tokens": 32000,
@@ -646,7 +646,7 @@ def _deep_harmonic_analysis_vision(page_images, notation="latin"):
 
     with client.messages.stream(
         model=CLAUDE_MODEL,
-        max_tokens=32000,
+        max_tokens=64000,
         thinking={"type": "enabled", "budget_tokens": 32000},
         system=HARMONIC_ANALYSIS_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": content}],
