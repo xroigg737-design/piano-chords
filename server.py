@@ -500,10 +500,7 @@ def _deep_harmonic_analysis(mxml_data, notation="latin"):
     with client.messages.stream(
         model=CLAUDE_MODEL,
         max_tokens=32000,
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 16000,
-        },
+        thinking={"type": "adaptive"},
         system=HARMONIC_ANALYSIS_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
@@ -570,7 +567,7 @@ def _detect_key_from_image(page_images):
     resp = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=10000,
-        thinking={"type": "enabled", "budget_tokens": 8000},
+        thinking={"type": "adaptive"},
         messages=[{"role": "user", "content": content}],
     )
 
@@ -647,7 +644,7 @@ def _deep_harmonic_analysis_vision(page_images, notation="latin"):
     with client.messages.stream(
         model=CLAUDE_MODEL,
         max_tokens=32000,
-        thinking={"type": "enabled", "budget_tokens": 16000},
+        thinking={"type": "adaptive"},
         system=HARMONIC_ANALYSIS_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": content}],
     ) as stream:

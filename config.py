@@ -9,7 +9,7 @@ load_dotenv(Path.home() / "videomind" / ".env")
 
 # API
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = "claude-sonnet-4-6"
+CLAUDE_MODEL = "claude-opus-5"
 
 # Rendering
 RENDER_DPI = 200
