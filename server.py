@@ -499,10 +499,10 @@ def _deep_harmonic_analysis(mxml_data, notation="latin"):
 
     with client.messages.stream(
         model=CLAUDE_MODEL,
-        max_tokens=64000,
+        max_tokens=32000,
         thinking={
             "type": "enabled",
-            "budget_tokens": 32000,
+            "budget_tokens": 16000,
         },
         system=HARMONIC_ANALYSIS_SYSTEM_PROMPT,
         messages=[{
@@ -569,7 +569,7 @@ def _detect_key_from_image(page_images):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=500,
+        max_tokens=10000,
         thinking={"type": "enabled", "budget_tokens": 8000},
         messages=[{"role": "user", "content": content}],
     )
@@ -646,8 +646,8 @@ def _deep_harmonic_analysis_vision(page_images, notation="latin"):
 
     with client.messages.stream(
         model=CLAUDE_MODEL,
-        max_tokens=64000,
-        thinking={"type": "enabled", "budget_tokens": 32000},
+        max_tokens=32000,
+        thinking={"type": "enabled", "budget_tokens": 16000},
         system=HARMONIC_ANALYSIS_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": content}],
     ) as stream:
