@@ -381,11 +381,12 @@ def parse_musicxml(file_path: str) -> MusicXMLData:
             note_groups=groups,
         ))
 
-    # Detect key from actual note content using Krumhansl-Kessler algorithm.
-    # This overrides both key_sharps and key_mode from MusicXML, which may
-    # be wrong (especially from OMR software like Audiveris).
+    # Use Krumhansl-Kessler only as fallback when MusicXML key looks like a
+    # default (0 sharps / C major) — notation editors export the correct key,
+    # so overriding it with a statistical guess was causing wrong tonalities.
+    xml_key_is_default = (key_sharps == 0 and key_mode == "major")
     detected_sharps, detected_mode = _detect_key_krumhansl(all_measures)
-    if detected_sharps is not None:
+    if xml_key_is_default and detected_sharps is not None:
         key_sharps = detected_sharps
         key_mode = detected_mode
 

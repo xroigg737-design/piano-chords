@@ -344,9 +344,22 @@ def _format_notes_for_claude(mxml_data, notation="latin"):
         key_name = key_names_flat[min(-mxml_data.key_sharps, 6)]
     mode_cat = "major" if mxml_data.key_mode == "major" else "menor"
 
+    sharp_notes_latin = ["Fa", "Do", "Sol", "Re", "La", "Mi", "Si"]
+    flat_notes_latin = ["Si", "Mi", "La", "Re", "Sol", "Do", "Fa"]
+    if mxml_data.key_sharps > 0:
+        altered = [f"{sharp_notes_latin[i]}#" for i in range(min(mxml_data.key_sharps, 7))]
+        key_sig_desc = f"{mxml_data.key_sharps} sostingut(s): {', '.join(altered)}"
+    elif mxml_data.key_sharps < 0:
+        n = min(-mxml_data.key_sharps, 7)
+        altered = [f"{flat_notes_latin[i]}b" for i in range(n)]
+        key_sig_desc = f"{n} bemoll(s): {', '.join(altered)}"
+    else:
+        key_sig_desc = "cap alteració (0 sostinguts, 0 bemolls)"
+
     lines = []
     lines.append(f"TÍTOL: {mxml_data.title or 'Sense títol'}")
     lines.append(f"TONALITAT: {key_name} {mode_cat}")
+    lines.append(f"ARMADURA DE CLAU: {key_sig_desc}")
     lines.append(f"COMPÀS: {mxml_data.time_num}/{mxml_data.time_den}")
     lines.append(f"TOTAL COMPASSOS: {mxml_data.total_measures}")
     lines.append("")
@@ -458,6 +471,14 @@ recurrents, relacions entre veus, conducció de veus notable.
 sostinguts o bemolls. Referència: 0=Do, 1#=Sol, 2#=Re, 3#=La, 4#=Mi, 5#=Si, \
 6#=Fa#, 1b=Fa, 2b=Sib, 3b=Mib, 4b=Lab, 5b=Reb, 6b=Solb. Un error en la \
 tonalitat invalida TOTA l'anàlisi. Compta cada sostingut/bemoll individualment.
+- VERIFICACIÓ DE TONALITAT: Un cop identificada la tonalitat, comprova que els \
+acords principals (sobretot al principi i al final) siguin coherents amb ella. \
+Si l'últim acord és diferent de la tònica esperada, reconsidera si la tonalitat \
+és correcta. Si la peça comença i acaba en un acord menor, podria ser en mode menor \
+(relatiu menor de la tonalitat major de l'armadura).
+- Si et proporcionen la TONALITAT a les dades d'entrada, utilitza-la com a referència \
+fiable (prové del fitxer MusicXML original). Només qüestiona-la si les notes no hi \
+encaixen gens.
 - Usa SEMPRE notació llatina: Do Re Mi Fa Sol La Si (NO C D E F G A B)
 - Sigues rigorós amb la identificació d'inversions — mira sempre el baix real
 - No simplifiquis: si un acord té 7a, 9a, etc., indica-ho
@@ -481,7 +502,7 @@ def _deep_harmonic_analysis(mxml_data, notation="latin"):
         max_tokens=32000,
         thinking={
             "type": "enabled",
-            "budget_tokens": 16000,
+            "budget_tokens": 32000,
         },
         system=HARMONIC_ANALYSIS_SYSTEM_PROMPT,
         messages=[{
@@ -505,12 +526,92 @@ def _deep_harmonic_analysis(mxml_data, notation="latin"):
     return _extract_json_from_response(response_text)
 
 
+def _detect_key_from_image(page_images):
+    """Pass 1: ask Claude to identify ONLY the key signature from the score image."""
+    import anthropic, json
+    from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+
+    content = []
+    b64 = base64.b64encode(page_images[0]).decode()
+    content.append({
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": b64},
+    })
+    content.append({
+        "type": "text",
+        "text": (
+            "Mira NOMÉS l'armadura de clau (key signature) al principi del pentagrama "
+            "d'aquesta partitura. NO facis cap altra anàlisi.\n\n"
+            "1. Compta un per un els sostinguts (#) o bemolls (b) que hi apareixen "
+            "ENTRE la clau (sol/fa) i el compàs.\n"
+            "2. Mira si hi ha indicació de tonalitat menor (minor) o si pel context "
+            "podria ser menor.\n\n"
+            "Referència:\n"
+            "- 0 alteracions = Do major / La menor\n"
+            "- 1# (Fa#) = Sol major / Mi menor\n"
+            "- 2# (Fa#, Do#) = Re major / Si menor\n"
+            "- 3# (Fa#, Do#, Sol#) = La major / Fa# menor\n"
+            "- 4# (Fa#, Do#, Sol#, Re#) = Mi major / Do# menor\n"
+            "- 5# (Fa#, Do#, Sol#, Re#, La#) = Si major / Sol# menor\n"
+            "- 1b (Sib) = Fa major / Re menor\n"
+            "- 2b (Sib, Mib) = Sib major / Sol menor\n"
+            "- 3b (Sib, Mib, Lab) = Mib major / Do menor\n"
+            "- 4b (Sib, Mib, Lab, Reb) = Lab major / Fa menor\n"
+            "- 5b (Sib, Mib, Lab, Reb, Solb) = Reb major / Sib menor\n\n"
+            "Respon NOMÉS amb JSON:\n"
+            '{"sharps_or_flats": <número, positiu=sostinguts, negatiu=bemolls>, '
+            '"key": "<tonalitat, ex: Sol major>", '
+            '"time_signature": "<compàs, ex: 4/4>", '
+            '"confidence": "<high/medium/low>"}'
+        ),
+    })
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    resp = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=500,
+        thinking={"type": "enabled", "budget_tokens": 8000},
+        messages=[{"role": "user", "content": content}],
+    )
+
+    for block in resp.content:
+        if block.type == "text":
+            text = block.text.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                import re
+                m = re.search(r'\{[^}]+\}', text)
+                if m:
+                    try:
+                        return json.loads(m.group())
+                    except json.JSONDecodeError:
+                        pass
+    return None
+
+
 def _deep_harmonic_analysis_vision(page_images, notation="latin"):
-    """Send PDF page images to Claude for direct visual harmonic analysis."""
+    """Two-pass PDF analysis: detect key first, then full harmonic analysis."""
     import anthropic
     from analyzer import _extract_json_from_response
     from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
+    # ── Pass 1: detect key signature ──
+    key_info = _detect_key_from_image(page_images)
+    key_hint = ""
+    if key_info:
+        key_hint = (
+            f"\n\nDETECCIÓ PRÈVIA DE L'ARMADURA: {key_info.get('key', '?')} "
+            f"({key_info.get('sharps_or_flats', 0)} alteracions, "
+            f"confiança: {key_info.get('confidence', '?')}). "
+            f"Compàs detectat: {key_info.get('time_signature', '?')}. "
+            f"Verifica-ho tu mateix mirant la partitura, però utilitza "
+            f"aquesta detecció com a referència."
+        )
+
+    # ── Pass 2: full harmonic analysis ──
     content = []
     for i, png_bytes in enumerate(page_images):
         b64 = base64.b64encode(png_bytes).decode()
@@ -537,6 +638,7 @@ def _deep_harmonic_analysis_vision(page_images, notation="latin"):
             f"1#=Sol, 2#=Re, 3#=La, 4#=Mi, 5#=Si. "
             f"1b=Fa, 2b=Sib, 3b=Mib, 4b=Lab. "
             f"La tonalitat correcta és fonamental per a tota l'anàlisi."
+            f"{key_hint}"
         ),
     })
 
@@ -545,7 +647,7 @@ def _deep_harmonic_analysis_vision(page_images, notation="latin"):
     with client.messages.stream(
         model=CLAUDE_MODEL,
         max_tokens=32000,
-        thinking={"type": "enabled", "budget_tokens": 16000},
+        thinking={"type": "enabled", "budget_tokens": 32000},
         system=HARMONIC_ANALYSIS_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": content}],
     ) as stream:
@@ -597,7 +699,7 @@ def harmonic_analysis():
             if len(page_indices) > MAX_PAGES:
                 page_indices = page_indices[:MAX_PAGES]
 
-            ANALYSIS_DPI = 250
+            ANALYSIS_DPI = 300
             images = []
             for idx in page_indices:
                 images.append(render_page_to_png(doc[idx], dpi=ANALYSIS_DPI))
