@@ -447,6 +447,19 @@ la nova tonalitat, l'acord pivot (si n'hi ha) i el tipus de modulació \
 comentaris que ajudin l'estudiant a entendre: progressions típiques, patrons \
 recurrents, relacions entre veus, conducció de veus notable.
 
+10. **Resum pedagògic per seccions** (`pedagogical_sections`): En lloc d'un text \
+seguit, organitza el resum en 4 a 6 seccions amb títol propi. Cada secció porta un \
+`title` curt (2 a 5 paraules, sense numerar i sense dos punts finals) i un `text` \
+d'un o dos paràgrafs. Adapta els títols a la peça concreta; aquests són exemples \
+del tipus de títol i de contingut que s'espera: "Estructura general" (forma, \
+tonalitats i on són els punts d'articulació), "Els dos eixos harmònics" (les \
+progressions que sostenen la peça, cadenes de dominants, girs cadencials), \
+"Notes estranyes" (el cromatisme i les notes no harmòniques: què són i per què hi \
+són), "Consells d'interpretació" (so, pedal, rubato, equilibri entre mans), \
+"Estratègia d'estudi" (com desmuntar-la i memoritzar-la per blocs harmònics). \
+No repeteixis compàs per compàs el que ja has dit a les observacions: aquí toca \
+la visió de conjunt.
+
 ═══ FORMAT DE SORTIDA — JSON vàlid ═══
 
 {
@@ -474,7 +487,9 @@ recurrents, relacions entre veus, conducció de veus notable.
   "modulations_summary": [
     {"from_key": "<tonalitat>", "to_key": "<tonalitat>", "at_measure": <n>, "type": "<tipus>", "pivot_chord": "<acord pivot o null>"}
   ],
-  "pedagogical_summary": "<resum de 3-5 paràgrafs per a l'estudiant: estructura harmònica general, progressions principals, elements destacables, consells per a la memorització i interpretació>"
+  "pedagogical_sections": [
+    {"title": "<títol curt de la secció>", "text": "<un o dos paràgrafs>"}
+  ]
 }
 
 ═══ REGLES IMPORTANTS ═══
@@ -497,7 +512,9 @@ encaixen gens.
 sortir a totes dues llistes. Comprova que totes les notes de "chord_tones" \
 sonin realment al compàs i que el xifrat de "chord_symbol" se'n derivi
 - Quan hi hagi ambigüitat, explica les possibles interpretacions
-- El resum pedagògic ha de ser útil per a un estudiant de piano intermedi
+- El resum pedagògic ha de ser útil per a un estudiant de piano intermedi, i ha \
+d'anar SEMPRE dins de "pedagogical_sections" amb títols de secció, mai com un \
+únic bloc de text seguit
 - Respon NOMÉS amb el JSON, sense text addicional
 """
 
