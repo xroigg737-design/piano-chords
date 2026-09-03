@@ -411,29 +411,39 @@ anàlisi harmònica completa i rigorosa en català.
 1. **Acord**: Identifica l'acord amb símbol jazz (Do, Rem, Sol7, Faø, etc.) usant \
 notació llatina (Do Re Mi Fa Sol La Si).
 
-2. **Numeral romà**: Grau dins la tonalitat actual (I, ii, iii, IV, V, vi, viiº). \
+2. **Notes que formen l'acord**: Llista les notes que REALMENT sonen al compàs i \
+que justifiquen l'acord que has xifrat: fonamental, 3a, 5a i, si n'hi ha, 7a/9a/etc., \
+ordenades des de la fonamental i amb les alteracions tal com estan escrites \
+(ex: ["Mi", "Sol#", "Si"]). Aquesta llista ha de permetre a l'estudiant veure d'on \
+surt el xifrat. NO hi posis notes de pas, brodadures, retards, appogiatures, \
+escapades ni anticipacions: aquestes van només a `non_harmonic_tones`. Si l'acord \
+apareix incomplet (per exemple sense 5a) o repartit entre les dues mans, llista \
+només les notes que hi sonen de debò, sense inventar-ne cap ni completar l'acord \
+"de memòria". Si en un compàs hi ha més d'un acord, dóna les notes del principal.
+
+3. **Numeral romà**: Grau dins la tonalitat actual (I, ii, iii, IV, V, vi, viiº). \
 Majúscules = major, minúscules = menor. Afegeix 7 si escau (V7, viio7, ii7, etc.).
 
-3. **Funció tonal**: T (tònica), S (subdominant), D (dominant), DD (dominant de la \
+4. **Funció tonal**: T (tònica), S (subdominant), D (dominant), DD (dominant de la \
 dominant), tp (tònica paral·lela = relatiu menor de la tònica), sp (subdominant \
 paral·lela), dp (dominant paral·lela). Usa la nomenclatura funcional de Riemann.
 
-4. **Inversió**: Estat fonamental (EF), 1a inversió (6), 2a inversió (6/4), \
+5. **Inversió**: Estat fonamental (EF), 1a inversió (6), 2a inversió (6/4), \
 3a inversió d'un acord de 7a (4/2, 6/5, 4/3). Indica el baix real.
 
-5. **Notes no harmòniques**: Identifica notes de pas, retards, brodadures \
+6. **Notes no harmòniques**: Identifica notes de pas, retards, brodadures \
 (mordents), apoggiatures, escapades, anticipacions. Especifica quines notes \
 exactes són i de quin tipus.
 
-6. **Cadències**: Identifica cadències quan es produeixin: \
+7. **Cadències**: Identifica cadències quan es produeixin: \
 perfecta (V→I), imperfecta, plagal (IV→I), semicadència (→V), \
 rota/enganyosa (V→vi), frigiana, napolitana.
 
-7. **Modulacions**: Detecta canvis de tonalitat. Indica la tonalitat d'origen, \
+8. **Modulacions**: Detecta canvis de tonalitat. Indica la tonalitat d'origen, \
 la nova tonalitat, l'acord pivot (si n'hi ha) i el tipus de modulació \
 (diatònica, cromàtica, enarmònica, directa).
 
-8. **Observacions didàctiques**: Per cada compàs o grup de compassos, afegeix \
+9. **Observacions didàctiques**: Per cada compàs o grup de compassos, afegeix \
 comentaris que ajudin l'estudiant a entendre: progressions típiques, patrons \
 recurrents, relacions entre veus, conducció de veus notable.
 
@@ -448,6 +458,7 @@ recurrents, relacions entre veus, conducció de veus notable.
     {
       "measure": <número>,
       "chord_symbol": "<símbol acord en notació llatina>",
+      "chord_tones": ["<notes reals que formen l'acord, des de la fonamental>"],
       "roman_numeral": "<numeral romà amb qualitat>",
       "tonal_function": "<T/S/D/DD/tp/sp/dp>",
       "inversion": "<EF/6/6_4/6_5/4_3/4_2>",
@@ -482,6 +493,9 @@ encaixen gens.
 - Usa SEMPRE notació llatina: Do Re Mi Fa Sol La Si (NO C D E F G A B)
 - Sigues rigorós amb la identificació d'inversions — mira sempre el baix real
 - No simplifiquis: si un acord té 7a, 9a, etc., indica-ho
+- "chord_tones" i "non_harmonic_tones" són conjunts disjunts: cap nota no pot \
+sortir a totes dues llistes. Comprova que totes les notes de "chord_tones" \
+sonin realment al compàs i que el xifrat de "chord_symbol" se'n derivi
 - Quan hi hagi ambigüitat, explica les possibles interpretacions
 - El resum pedagògic ha de ser útil per a un estudiant de piano intermedi
 - Respon NOMÉS amb el JSON, sense text addicional
