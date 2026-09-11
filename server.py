@@ -17,7 +17,7 @@ from config import PREFER_ALGORITHMIC, MIN_CHORD_CONFIDENCE
 from note_extractor import detect_is_vector_music, extract_notes
 from chord_identifier import analyze_page_chords, identify_chord, _key_sharps_from_signature, _detect_harmonic_rhythm, explain_measure_chord, classify_note_as_chord_tone, is_chromatic_note, detect_inversion, roman_numeral
 from musicxml_parser import parse_musicxml
-from staff_segmenter import render_page_systems
+from staff_segmenter import key_signature_crops, render_page_systems
 from musicxml_pdf_writer import generate_chord_chart_pdf
 from pdf_writer import (
     render_page_to_png,
@@ -555,26 +555,57 @@ def _deep_harmonic_analysis(mxml_data, notation="latin"):
     return _extract_json_from_response(response_text)
 
 
-def _detect_key_from_image(page_images, media_type="image/png"):
-    """Pass 1: ask Claude to identify ONLY the key signature from the score image."""
+def _detect_key_from_image(images, media_type="image/png"):
+    """Pass 1: comptar NOMÉS l'armadura de clau, sobre retalls ampliats.
+
+    Es passen diversos retalls (l'inici de sistemes diferents de la mateixa
+    partitura, que per força tenen la mateixa armadura) perquè el recompte es
+    pugui contrastar. Errar el nombre d'alteracions invalida tota l'anàlisi que
+    ve després, així que val la pena mirar-s'ho tres vegades.
+    """
     import anthropic, json
     from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
     content = []
-    b64 = base64.b64encode(page_images[0]).decode()
-    content.append({
-        "type": "image",
-        "source": {"type": "base64", "media_type": media_type, "data": b64},
-    })
+    for img in images:
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64.b64encode(img).decode(),
+            },
+        })
+
+    plural = len(images) > 1
+    intro = (
+        "Aquestes imatges són el començament de sistemes diferents de la MATEIXA "
+        "partitura, ampliats. Totes hi mostren la mateixa armadura de clau: "
+        "compta-la i contrasta el que veus a cada imatge.\n\n"
+        if plural
+        else "Mira NOMÉS l'armadura de clau (key signature) d'aquest retall ampliat "
+             "de partitura.\n\n"
+    )
     content.append({
         "type": "text",
         "text": (
-            "Mira NOMÉS l'armadura de clau (key signature) al principi del pentagrama "
-            "d'aquesta partitura. NO facis cap altra anàlisi.\n\n"
-            "1. Compta un per un els sostinguts (#) o bemolls (b) que hi apareixen "
-            "ENTRE la clau (sol/fa) i el compàs.\n"
-            "2. Mira si hi ha indicació de tonalitat menor (minor) o si pel context "
-            "podria ser menor.\n\n"
+            intro +
+            "NO facis cap altra anàlisi. Procedeix així:\n"
+            "1. Al pentagrama de DALT (clau de sol), mira l'espai que hi ha ENTRE la "
+            "clau i la indicació de compàs. Compta les alteracions una per una i "
+            "digues sobre quina línia o espai cau cadascuna. Posicions dels "
+            "sostinguts en clau de sol, sempre en aquest ordre: Fa# (5a línia, la de "
+            "dalt), Do# (3r espai), Sol# (just per sobre de la 5a línia), Re# (4a "
+            "línia), La# (2n espai), Mi# (4t espai).\n"
+            "   Bemolls en clau de sol, en aquest ordre: Sib (3a línia), Mib (4t "
+            "espai), Lab (2n espai), Reb (4a línia), Solb (1r espai), Dob (3r espai).\n"
+            "2. Fes el mateix al pentagrama de BAIX (clau de fa) i comprova que en "
+            "surti el mateix nombre. Si els dos recomptes no coincideixen, torna-hi.\n"
+            "3. Si l'espai entre la clau i el compàs és buit, l'armadura és de 0 "
+            "alteracions.\n"
+            "IMPORTANT: no comptis com a armadura cap alteració que estigui a la "
+            "dreta de la indicació de compàs o enganxada a una nota: aquestes són "
+            "alteracions accidentals, no formen part de l'armadura.\n\n"
             "Referència:\n"
             "- 0 alteracions = Do major / La menor\n"
             "- 1# (Fa#) = Sol major / Mi menor\n"
@@ -588,7 +619,8 @@ def _detect_key_from_image(page_images, media_type="image/png"):
             "- 4b (Sib, Mib, Lab, Reb) = Lab major / Fa menor\n"
             "- 5b (Sib, Mib, Lab, Reb, Solb) = Reb major / Sib menor\n\n"
             "Respon NOMÉS amb JSON:\n"
-            '{"sharps_or_flats": <número, positiu=sostinguts, negatiu=bemolls>, '
+            '{"accidentals_seen": ["<alteració i on cau, ex: Fa# a la 5a línia>"], '
+            '"sharps_or_flats": <número, positiu=sostinguts, negatiu=bemolls>, '
             '"key": "<tonalitat, ex: Sol major>", '
             '"time_signature": "<compàs, ex: 4/4>", '
             '"confidence": "<high/medium/low>"}'
@@ -621,7 +653,9 @@ def _detect_key_from_image(page_images, media_type="image/png"):
     return None
 
 
-def _deep_harmonic_analysis_vision(page_images, notation="latin", crops=None):
+def _deep_harmonic_analysis_vision(
+    page_images, notation="latin", crops=None, key_crops=None, key_override=""
+):
     """Two-pass PDF analysis: detect key first, then full harmonic analysis.
 
     `crops` són els retalls sistema a sistema (imatge, peu de foto) que retorna
@@ -635,19 +669,39 @@ def _deep_harmonic_analysis_vision(page_images, notation="latin", crops=None):
 
     # ── Pass 1: detect key signature (millor sobre el primer retall, on
     # l'armadura es veu gran, que no pas sobre la pàgina sencera) ──
-    if crops:
+    if key_override:
+        # l'usuari ens diu la tonalitat: no cal endevinar-la ni gastar-hi una crida
+        key_info = None
+    elif key_crops:
+        key_info = _detect_key_from_image(key_crops, media_type="image/jpeg")
+    elif crops:
         key_info = _detect_key_from_image([crops[0][0]], media_type="image/jpeg")
     else:
         key_info = _detect_key_from_image(page_images)
     key_hint = ""
-    if key_info:
+    if key_override:
         key_hint = (
-            f"\n\nDETECCIÓ PRÈVIA DE L'ARMADURA: {key_info.get('key', '?')} "
+            f"\n\nTONALITAT INDICADA PER L'USUARI: {key_override}. Ve d'una persona "
+            f"que té la partitura a les mans, o sigui que és fiable: fes-la servir "
+            f"i no la qüestionis. Deriva'n l'armadura i llegeix-hi totes les notes."
+        )
+    elif key_info:
+        seen = key_info.get("accidentals_seen") or []
+        seen_txt = (
+            " Alteracions vistes a l'armadura: " + ", ".join(str(x) for x in seen) + "."
+            if seen
+            else ""
+        )
+        key_hint = (
+            f"\n\nDETECCIÓ PRÈVIA DE L'ARMADURA (feta sobre un retall ampliat "
+            f"només de la clau i l'armadura, on es compten millor que no pas a la "
+            f"partitura sencera): {key_info.get('key', '?')} "
             f"({key_info.get('sharps_or_flats', 0)} alteracions, "
-            f"confiança: {key_info.get('confidence', '?')}). "
+            f"confiança: {key_info.get('confidence', '?')}).{seen_txt} "
             f"Compàs detectat: {key_info.get('time_signature', '?')}. "
-            f"Verifica-ho tu mateix mirant la partitura, però utilitza "
-            f"aquesta detecció com a referència."
+            f"Parteix d'aquesta armadura: només qüestiona-la si les notes escrites "
+            f"la contradiuen de manera clara i repetida, i llavors digues-ho a "
+            f"`observations`."
         )
 
     # ── Pass 2: full harmonic analysis ──
@@ -754,6 +808,7 @@ def harmonic_analysis():
         return jsonify({"error": "Només fitxers MusicXML (.xml, .musicxml, .mxl) o PDF"}), 400
 
     notation = request.form.get("notation", "latin")
+    key_override = request.form.get("key", "").strip()[:60]
     job_id = uuid.uuid4().hex[:12]
 
     # --- PDF path: render pages → Claude Vision ---
@@ -783,6 +838,14 @@ def harmonic_analysis():
                     traceback.print_exc()
                     crops = []
                     break
+            key_crops = []
+            if page_indices and not key_override:
+                try:
+                    key_crops = key_signature_crops(doc[page_indices[0]])
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+
             crops_truncated = len(crops) > MAX_CROPS
             if crops_truncated:
                 crops = crops[:MAX_CROPS]
@@ -794,7 +857,11 @@ def harmonic_analysis():
             doc.close()
 
             result = _deep_harmonic_analysis_vision(
-                images, notation, crops=crops or None
+                images,
+                notation,
+                crops=crops or None,
+                key_crops=key_crops or None,
+                key_override=key_override,
             )
             if isinstance(result, dict):
                 result["source_mode"] = "retalls" if crops else "pagina_sencera"

@@ -36,6 +36,7 @@ MAX_EDGE_PX = 1500
 MAX_PIXELS = 1_100_000
 MARGIN_PT = 12.0
 JPEG_QUALITY = 88
+KEYSIG_MAX_WIDTH_PT = 70.0
 
 
 @dataclass
@@ -465,6 +466,39 @@ def render_chunk(
     out.paste(head, (0, 0))
     out.paste(main, (head.width + gap, 0))
     return _to_jpeg(out)
+
+
+def render_key_signature(page: fitz.Page, system: SystemBand) -> bytes:
+    """Retall ampliat de la clau, l'armadura i la indicació de compàs.
+
+    Comptar sostinguts i bemolls és el pas que invalida tota l'anàlisi si falla,
+    i en un retall de sistema sencer l'armadura hi ocupa quatre píxels. Aquí se
+    n'agafa només la franja de l'esquerra, amb els dos pentagrames (l'armadura
+    hi surt dues vegades, així es pot contrastar), i s'amplia tant com dóna de si.
+    """
+    x1 = system.x_left + KEYSIG_MAX_WIDTH_PT
+    if len(system.barlines) > 1:
+        x1 = min(x1, system.barlines[1])
+    clip = fitz.Rect(
+        max(0.0, system.x_left - 2),
+        max(0.0, system.y_top - 2),
+        min(page.rect.width, x1),
+        min(page.rect.height, system.y_bottom + 2),
+    )
+    if clip.width <= 0 or clip.height <= 0:
+        return b""
+    dpi = int(min(1400 * 72 / clip.height, 900 * 72 / clip.width))
+    return _to_jpeg(_pixmap_image(page, clip, max(72, dpi)))
+
+
+def key_signature_crops(page: fitz.Page, max_systems: int = 3) -> list[bytes]:
+    """Un retall d'armadura per cadascun dels primers sistemes de la pàgina."""
+    out: list[bytes] = []
+    for system in segment_systems(page)[:max_systems]:
+        img = render_key_signature(page, system)
+        if img:
+            out.append(img)
+    return out
 
 
 def render_page_systems(page: fitz.Page, page_number: int) -> list[tuple[bytes, str]]:
