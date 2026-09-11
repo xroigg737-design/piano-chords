@@ -82,6 +82,8 @@ piano-chords/
   note_extractor.py    Staff detection, notehead/accidental extraction, pitch calculation
   chord_identifier.py  Chord templates, matching, harmonic rhythm detection
   pdf_writer.py        Barline detection, layout, PDF annotation
+  staff_segmenter.py   System/barline segmentation of scanned scores (raster)
+  debug_segmentation.py  Visual check of the segmentation (writes annotated PNGs)
   analyzer.py          Claude Vision API integration
   config.py            Configuration (colors, fonts, thresholds, API settings)
   requirements.txt     Python dependencies

@@ -17,6 +17,7 @@ from config import PREFER_ALGORITHMIC, MIN_CHORD_CONFIDENCE
 from note_extractor import detect_is_vector_music, extract_notes
 from chord_identifier import analyze_page_chords, identify_chord, _key_sharps_from_signature, _detect_harmonic_rhythm, explain_measure_chord, classify_note_as_chord_tone, is_chromatic_note, detect_inversion, roman_numeral
 from musicxml_parser import parse_musicxml
+from staff_segmenter import render_page_systems
 from musicxml_pdf_writer import generate_chord_chart_pdf
 from pdf_writer import (
     render_page_to_png,
@@ -554,7 +555,7 @@ def _deep_harmonic_analysis(mxml_data, notation="latin"):
     return _extract_json_from_response(response_text)
 
 
-def _detect_key_from_image(page_images):
+def _detect_key_from_image(page_images, media_type="image/png"):
     """Pass 1: ask Claude to identify ONLY the key signature from the score image."""
     import anthropic, json
     from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
@@ -563,7 +564,7 @@ def _detect_key_from_image(page_images):
     b64 = base64.b64encode(page_images[0]).decode()
     content.append({
         "type": "image",
-        "source": {"type": "base64", "media_type": "image/png", "data": b64},
+        "source": {"type": "base64", "media_type": media_type, "data": b64},
     })
     content.append({
         "type": "text",
@@ -620,14 +621,24 @@ def _detect_key_from_image(page_images):
     return None
 
 
-def _deep_harmonic_analysis_vision(page_images, notation="latin"):
-    """Two-pass PDF analysis: detect key first, then full harmonic analysis."""
+def _deep_harmonic_analysis_vision(page_images, notation="latin", crops=None):
+    """Two-pass PDF analysis: detect key first, then full harmonic analysis.
+
+    `crops` són els retalls sistema a sistema (imatge, peu de foto) que retorna
+    staff_segmenter. Si n'hi ha, són aquests els que s'envien per a l'anàlisi:
+    la pàgina sencera arriba a l'API reduïda a uns 120 DPI efectius i els caps
+    de nota hi queden de 4-5 px, que és d'on surten les notes inventades.
+    """
     import anthropic
     from analyzer import _extract_json_from_response
     from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
-    # ── Pass 1: detect key signature ──
-    key_info = _detect_key_from_image(page_images)
+    # ── Pass 1: detect key signature (millor sobre el primer retall, on
+    # l'armadura es veu gran, que no pas sobre la pàgina sencera) ──
+    if crops:
+        key_info = _detect_key_from_image([crops[0][0]], media_type="image/jpeg")
+    else:
+        key_info = _detect_key_from_image(page_images)
     key_hint = ""
     if key_info:
         key_hint = (
@@ -641,20 +652,51 @@ def _deep_harmonic_analysis_vision(page_images, notation="latin"):
 
     # ── Pass 2: full harmonic analysis ──
     content = []
-    for i, png_bytes in enumerate(page_images):
-        b64 = base64.b64encode(png_bytes).decode()
-        content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/png", "data": b64},
-        })
-        if len(page_images) > 1:
-            content.append({"type": "text", "text": f"(Pàgina {i + 1})"})
+    if crops:
+        for img_bytes, caption in crops:
+            b64 = base64.b64encode(img_bytes).decode()
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+            })
+            content.append({"type": "text", "text": caption})
+    else:
+        for i, png_bytes in enumerate(page_images):
+            b64 = base64.b64encode(png_bytes).decode()
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": b64},
+            })
+            if len(page_images) > 1:
+                content.append({"type": "text", "text": f"(Pàgina {i + 1})"})
 
     notation_str = (
         "llatina (Do Re Mi Fa Sol La Si)"
         if notation == "latin"
         else "anglosaxona (C D E F G A B)"
     )
+    crop_note = ""
+    if crops:
+        crop_note = (
+            "\n\nCOM ARRIBEN LES IMATGES: no reps la pàgina sencera, sinó retalls "
+            "en ordre de lectura, un o dos per sistema, ampliats perquè es puguin "
+            "llegir les altures exactes. Cada imatge porta a sota un peu que diu de "
+            "quina pàgina i de quin sistema és i quants compassos hi ha. Llegeix els "
+            "retalls en l'ordre en què arriben i encadena la numeració de compassos "
+            "d'un retall al següent: no reiniciïs el comptador a cada imatge ni a "
+            "cada pàgina. Si un retall repeteix la clau i l'armadura a l'esquerra, "
+            "això NO és un compàs nou.\n"
+            "NUMERACIÓ DELS COMPASSOS: si la peça comença amb anacrusi (un compàs "
+            "incomplet abans de la primera barra), numera-la com a compàs 0 i dóna el "
+            "número 1 al primer compàs complet. Comprova que la suma de figures de "
+            "cada compàs quadri amb la indicació de compàs; si no quadra, és que has "
+            "llegit malament alguna figura o has ajuntat dos compassos.\n"
+            "ABANS DE XIFRAR CAP ACORD, llegeix nota per nota el que hi ha escrit: "
+            "primer el baix (clau de fa) i després la mà dreta. Anomena només notes "
+            "que vegis realment al pentagrama; si una nota no es llegeix bé, digues-ho "
+            "a `observations` en comptes d'endevinar-la. No completis acords \"de "
+            "memòria\" amb notes que no hi són."
+        )
     content.append({
         "type": "text",
         "text": (
@@ -666,6 +708,7 @@ def _deep_harmonic_analysis_vision(page_images, notation="latin"):
             f"1#=Sol, 2#=Re, 3#=La, 4#=Mi, 5#=Si. "
             f"1b=Fa, 2b=Sib, 3b=Mib, 4b=Lab. "
             f"La tonalitat correcta és fonamental per a tota l'anàlisi."
+            f"{crop_note}"
             f"{key_hint}"
         ),
     })
@@ -727,13 +770,37 @@ def harmonic_analysis():
             if len(page_indices) > MAX_PAGES:
                 page_indices = page_indices[:MAX_PAGES]
 
+            # Retalls sistema a sistema: és el que fa que les notes es
+            # llegeixin bé (vegeu staff_segmenter). La pàgina sencera només
+            # s'usa com a pla B si la detecció de pentagrames falla.
+            MAX_CROPS = 36
+            crops = []
+            for idx in page_indices:
+                try:
+                    crops.extend(render_page_systems(doc[idx], idx + 1))
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+                    crops = []
+                    break
+            crops_truncated = len(crops) > MAX_CROPS
+            if crops_truncated:
+                crops = crops[:MAX_CROPS]
+
             ANALYSIS_DPI = 300
             images = []
             for idx in page_indices:
                 images.append(render_page_to_png(doc[idx], dpi=ANALYSIS_DPI))
             doc.close()
 
-            result = _deep_harmonic_analysis_vision(images, notation)
+            result = _deep_harmonic_analysis_vision(
+                images, notation, crops=crops or None
+            )
+            if isinstance(result, dict):
+                result["source_mode"] = "retalls" if crops else "pagina_sencera"
+                result["crop_count"] = len(crops)
+                if crops_truncated:
+                    result["crops_truncated"] = True
             return jsonify(result)
         except Exception as e:
             import traceback
